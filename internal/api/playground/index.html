@@ -1,0 +1,787 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Storage Playground</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --surface2: #242836;
+      --border: #2e3345;
+      --text: #e4e6ef;
+      --muted: #8b90a5;
+      --accent: #6c8cff;
+      --accent-dim: #4a62b3;
+      --ok: #3dd68c;
+      --warn: #f5a623;
+      --err: #f45b69;
+      --radius: 8px;
+      --font: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.5;
+    }
+
+    header {
+      padding: 1.25rem 1.5rem;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+
+    header h1 {
+      margin: 0 0 0.25rem;
+      font-size: 1.25rem;
+      font-weight: 600;
+    }
+
+    header p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.875rem;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: auto 1fr auto;
+      gap: 1rem;
+      padding: 1rem 1.5rem 1.5rem;
+      max-width: 1400px;
+      margin: 0 auto;
+      min-height: calc(100vh - 80px);
+    }
+
+    @media (max-width: 960px) {
+      .layout { grid-template-columns: 1fr; }
+    }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .panel-head {
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.8125rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+    }
+
+    .panel-body { padding: 1rem; }
+
+    .config { grid-column: 1 / -1; }
+
+    .config-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      align-items: flex-end;
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      flex: 1;
+      min-width: 180px;
+    }
+
+    .field label {
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+
+    input[type="text"] {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      padding: 0.5rem 0.65rem;
+      font: inherit;
+      width: 100%;
+    }
+
+    input:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    .btn-row { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+
+    button {
+      font: inherit;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--text);
+      border-radius: 6px;
+      padding: 0.45rem 0.85rem;
+      font-size: 0.875rem;
+      transition: background 0.15s, border-color 0.15s;
+    }
+
+    button:hover:not(:disabled) {
+      background: var(--border);
+      border-color: var(--muted);
+    }
+
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    button.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+
+    button.primary:hover:not(:disabled) {
+      background: var(--accent-dim);
+      border-color: var(--accent-dim);
+    }
+
+    button.danger {
+      color: var(--err);
+      border-color: #5a2a30;
+    }
+
+    button.danger:hover:not(:disabled) {
+      background: #3a1e22;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-size: 0.8125rem;
+      padding: 0.2rem 0.55rem;
+      border-radius: 999px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+    }
+
+    .status-pill.ok { color: var(--ok); border-color: #1f4a35; }
+    .status-pill.warn { color: var(--warn); border-color: #4a3818; }
+    .status-pill.err { color: var(--err); border-color: #4a2028; }
+
+    .dropzone {
+      border: 2px dashed var(--border);
+      border-radius: var(--radius);
+      padding: 2rem 1rem;
+      text-align: center;
+      color: var(--muted);
+      transition: border-color 0.15s, background 0.15s;
+      cursor: pointer;
+    }
+
+    .dropzone.dragover {
+      border-color: var(--accent);
+      background: rgba(108, 140, 255, 0.08);
+      color: var(--text);
+    }
+
+    .dropzone input { display: none; }
+
+    .object-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      max-height: 420px;
+      overflow-y: auto;
+    }
+
+    .object-item {
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+      padding: 0.6rem 0.75rem;
+      border-radius: 6px;
+      cursor: pointer;
+      border: 1px solid transparent;
+    }
+
+    .object-item:hover { background: var(--surface2); }
+    .object-item.selected {
+      background: rgba(108, 140, 255, 0.12);
+      border-color: var(--accent-dim);
+    }
+
+    .object-icon { font-size: 1.25rem; line-height: 1; flex-shrink: 0; }
+
+    .object-meta { flex: 1; min-width: 0; }
+    .object-name {
+      font-size: 0.875rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .object-sub {
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+
+    .thumb-badge {
+      font-size: 0.6875rem;
+      padding: 0.1rem 0.4rem;
+      border-radius: 4px;
+      background: var(--surface2);
+      color: var(--muted);
+      flex-shrink: 0;
+    }
+
+    .thumb-badge.pending { color: var(--warn); }
+    .thumb-badge.ready { color: var(--ok); }
+    .thumb-badge.failed { color: var(--err); }
+
+    .preview-area {
+      min-height: 220px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.75rem;
+      background: var(--surface2);
+      border-radius: var(--radius);
+      padding: 1rem;
+      text-align: center;
+    }
+
+    .preview-area img, .preview-area video {
+      max-width: 100%;
+      max-height: 280px;
+      border-radius: 6px;
+      object-fit: contain;
+    }
+
+    .preview-placeholder {
+      font-size: 3rem;
+      opacity: 0.5;
+    }
+
+    .preview-detail {
+      font-size: 0.8125rem;
+      color: var(--muted);
+      word-break: break-all;
+    }
+
+    .preview-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      justify-content: center;
+      margin-top: 0.5rem;
+    }
+
+    .log-panel { grid-column: 1 / -1; }
+
+    .log {
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      max-height: 220px;
+      overflow-y: auto;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .log li {
+      padding: 0.35rem 0.5rem;
+      border-bottom: 1px solid var(--border);
+      display: grid;
+      grid-template-columns: auto auto 1fr;
+      gap: 0.5rem;
+      align-items: start;
+    }
+
+    .log li:last-child { border-bottom: none; }
+
+    .log .ts { color: var(--muted); white-space: nowrap; }
+    .log .tag {
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .log .tag.ok { color: var(--ok); }
+    .log .tag.err { color: var(--err); }
+    .log .tag.info { color: var(--accent); }
+    .log .tag.warn { color: var(--warn); }
+
+    .log .msg {
+      color: var(--muted);
+      word-break: break-all;
+      white-space: pre-wrap;
+    }
+
+    .empty {
+      color: var(--muted);
+      font-size: 0.875rem;
+      text-align: center;
+      padding: 1.5rem;
+    }
+
+    .spinner {
+      width: 1.25rem;
+      height: 1.25rem;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Storage Playground</h1>
+    <p>Presigned upload · on-demand image transform (w, h, c, q) · download URLs</p>
+  </header>
+
+  <main class="layout">
+    <section class="panel config">
+      <div class="panel-head">Configuration</div>
+      <div class="panel-body">
+        <div class="config-row">
+          <div class="field" style="flex: 2;">
+            <label for="apiBase">API base URL</label>
+            <input type="text" id="apiBase" placeholder="http://localhost:8080" />
+          </div>
+          <div class="field">
+            <label for="bucketId">Bucket ID</label>
+            <input type="text" id="bucketId" placeholder="uploads" />
+          </div>
+          <div class="btn-row">
+            <button type="button" id="btnSaveConfig" class="primary">Save</button>
+            <button type="button" id="btnHealth">Health check</button>
+            <button type="button" id="btnListBuckets">List buckets</button>
+            <button type="button" id="btnRefresh">Refresh objects</button>
+          </div>
+        </div>
+        <div style="margin-top: 0.75rem;">
+          <span id="healthStatus" class="status-pill">Not checked</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <span>Upload</span>
+      </div>
+      <div class="panel-body">
+        <div class="dropzone" id="dropzone">
+          <input type="file" id="fileInput" multiple />
+          <p><strong>Drop files here</strong> or click to browse</p>
+          <p style="font-size: 0.8125rem; margin-top: 0.5rem;">Presign → PUT to S3 → complete</p>
+        </div>
+        <div id="uploadProgress" style="margin-top: 0.75rem; font-size: 0.875rem; color: var(--muted);"></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <span>Objects</span>
+        <button type="button" id="btnRefreshSmall" style="font-size: 0.75rem; padding: 0.2rem 0.5rem;">↻</button>
+      </div>
+      <div class="panel-body" style="padding: 0.5rem;">
+        <ul class="object-list" id="objectList">
+          <li class="empty">No objects loaded</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="panel" style="grid-column: 1 / -1;">
+      <div class="panel-head">Preview</div>
+      <div class="panel-body">
+        <div class="config-row" id="transformRow" style="margin-bottom: 1rem;" hidden>
+          <div class="field" style="min-width: 72px; flex: 0;">
+            <label for="tfW">w</label>
+            <input type="text" id="tfW" value="320" />
+          </div>
+          <div class="field" style="min-width: 72px; flex: 0;">
+            <label for="tfH">h</label>
+            <input type="text" id="tfH" value="200" />
+          </div>
+          <div class="field" style="min-width: 100px; flex: 0;">
+            <label for="tfC">c</label>
+            <input type="text" id="tfC" value="fill" title="scale | fit | fill | pad | thumb" />
+          </div>
+          <div class="field" style="min-width: 72px; flex: 0;">
+            <label for="tfQ">q</label>
+            <input type="text" id="tfQ" value="85" />
+          </div>
+          <div class="field" style="min-width: 64px; flex: 0;">
+            <label for="tfPage">page</label>
+            <input type="text" id="tfPage" value="1" title="PDF/Office" />
+          </div>
+          <div class="field" style="min-width: 64px; flex: 0;">
+            <label for="tfDpi">dpi</label>
+            <input type="text" id="tfDpi" value="150" />
+          </div>
+          <div class="btn-row">
+            <button type="button" id="btnApplyTransform" class="primary">Apply transform</button>
+          </div>
+        </div>
+        <div class="preview-area" id="previewArea">
+          <div class="preview-placeholder" id="previewIcon">📎</div>
+          <div id="previewMedia"></div>
+          <div class="preview-detail" id="previewDetail">Select an object to preview</div>
+          <div class="preview-actions" id="previewActions" hidden>
+            <button type="button" id="btnDownload">Download original</button>
+            <button type="button" id="btnDelete" class="danger">Delete</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel log-panel">
+      <div class="panel-head">
+        <span>API log</span>
+        <button type="button" id="btnClearLog" style="font-size: 0.75rem; padding: 0.2rem 0.5rem;">Clear</button>
+      </div>
+      <div class="panel-body" style="padding: 0;">
+        <ul class="log" id="apiLog"></ul>
+      </div>
+    </section>
+  </main>
+
+  <script src="playground.js"></script>
+  <script>
+    const LS_API = 'storage-playground-api';
+    const LS_BUCKET = 'storage-playground-bucket';
+
+    const $ = (sel) => document.querySelector(sel);
+    const apiBaseEl = $('#apiBase');
+    const bucketIdEl = $('#bucketId');
+    const healthStatusEl = $('#healthStatus');
+    const objectListEl = $('#objectList');
+    const previewIconEl = $('#previewIcon');
+    const previewMediaEl = $('#previewMedia');
+    const previewDetailEl = $('#previewDetail');
+    const previewActionsEl = $('#previewActions');
+    const apiLogEl = $('#apiLog');
+    const uploadProgressEl = $('#uploadProgress');
+    const dropzoneEl = $('#dropzone');
+    const fileInputEl = $('#fileInput');
+
+    let client = null;
+    let objects = [];
+    let selected = null;
+    const transformRowEl = $('#transformRow');
+    const tfWEl = $('#tfW');
+    const tfHEl = $('#tfH');
+    const tfCEl = $('#tfC');
+    const tfQEl = $('#tfQ');
+
+    function defaultApiBase() {
+      if (window.location.pathname.startsWith('/playground')) {
+        return window.location.origin;
+      }
+      return 'http://localhost:8080';
+    }
+
+    function loadConfig() {
+      apiBaseEl.value = localStorage.getItem(LS_API) || defaultApiBase();
+      bucketIdEl.value = localStorage.getItem(LS_BUCKET) || 'uploads';
+    }
+
+    function saveConfig() {
+      localStorage.setItem(LS_API, apiBaseEl.value.trim());
+      localStorage.setItem(LS_BUCKET, bucketIdEl.value.trim());
+      initClient();
+      appendLog('info', 'CONFIG', '—', 'Configuration saved');
+    }
+
+    function initClient() {
+      client = new StoragePlayground(apiBaseEl.value.trim());
+      client.onLog = ({ level, method, url, status, detail }) => {
+        appendLog(level === 'ok' ? 'ok' : level === 'err' ? 'err' : 'info', method, status, url, detail);
+      };
+    }
+
+    function appendLog(level, method, status, url, detail) {
+      const li = document.createElement('li');
+      const ts = document.createElement('span');
+      ts.className = 'ts';
+      ts.textContent = new Date().toLocaleTimeString();
+
+      const tag = document.createElement('span');
+      tag.className = `tag ${level}`;
+      tag.textContent = `${method} ${status}`;
+
+      const msg = document.createElement('span');
+      msg.className = 'msg';
+      const detailStr =
+        detail && typeof detail === 'object' ? JSON.stringify(detail, null, 0) : String(detail ?? url);
+      msg.textContent = `${url}\n${detailStr}`;
+
+      li.append(ts, tag, msg);
+      apiLogEl.prepend(li);
+      while (apiLogEl.children.length > 100) {
+        apiLogEl.removeChild(apiLogEl.lastChild);
+      }
+    }
+
+    function setHealth(status, text) {
+      healthStatusEl.className = `status-pill ${status}`;
+      healthStatusEl.textContent = text;
+    }
+
+    async function checkHealth() {
+      try {
+        const res = await client.health();
+        setHealth('ok', `Healthy — ${res.status}`);
+      } catch (e) {
+        setHealth('err', `Unhealthy — ${e.message}`);
+      }
+    }
+
+    async function listBuckets() {
+      try {
+        const buckets = await client.listBuckets();
+        if (Array.isArray(buckets) && buckets.length && !bucketIdEl.value) {
+          bucketIdEl.value = buckets[0].id;
+        }
+        appendLog('info', 'INFO', '—', `Buckets: ${JSON.stringify(buckets.map((b) => b.id))}`);
+      } catch (e) {
+        appendLog('err', 'ERR', '—', e.message);
+      }
+    }
+
+    function transformParams() {
+      const p = { c: tfCEl.value.trim() || 'fill', q: parseInt(tfQEl.value, 10) || 85 };
+      const w = parseInt(tfWEl.value, 10);
+      const h = parseInt(tfHEl.value, 10);
+      const page = parseInt($('#tfPage').value, 10);
+      const dpi = parseInt($('#tfDpi').value, 10);
+      if (!isNaN(w) && w > 0) p.w = w;
+      if (!isNaN(h) && h > 0) p.h = h;
+      if (!isNaN(page) && page > 0) p.page = page;
+      if (!isNaN(dpi) && dpi > 0) p.dpi = dpi;
+      return p;
+    }
+
+    function canTransform(mimetype) {
+      const k = StoragePlayground.mimeKind(mimetype);
+      return k === 'image' || k === 'video' || k === 'pdf' || k === 'document';
+    }
+
+    function renderObjectList() {
+      if (!objects.length) {
+        objectListEl.innerHTML = '<li class="empty">No objects in bucket</li>';
+        return;
+      }
+      objectListEl.innerHTML = '';
+      for (const obj of objects) {
+        const li = document.createElement('li');
+        li.className = 'object-item' + (selected && selected.id === obj.id ? ' selected' : '');
+        li.dataset.id = obj.id;
+
+        const icon = document.createElement('span');
+        icon.className = 'object-icon';
+        icon.textContent = StoragePlayground.fileIcon(obj.metadata?.mimetype);
+
+        const meta = document.createElement('div');
+        meta.className = 'object-meta';
+        const name = document.createElement('div');
+        name.className = 'object-name';
+        name.textContent = obj.name;
+        const sub = document.createElement('div');
+        sub.className = 'object-sub';
+        sub.textContent = `${StoragePlayground.formatBytes(obj.metadata?.size)} · ${obj.metadata?.mimetype || 'unknown'}`;
+        meta.append(name, sub);
+
+        const badge = document.createElement('span');
+        badge.className = 'thumb-badge' + (canTransform(obj.metadata?.mimetype) ? ' ready' : '');
+        badge.textContent = canTransform(obj.metadata?.mimetype) ? 'image' : 'file';
+
+        li.append(icon, meta, badge);
+        li.addEventListener('click', () => selectObject(obj));
+        objectListEl.appendChild(li);
+      }
+    }
+
+    async function refreshObjects() {
+      const bucket = bucketIdEl.value.trim();
+      if (!bucket) {
+        appendLog('warn', 'WARN', '—', 'Bucket ID required');
+        return;
+      }
+      try {
+        objects = await client.listObjects(bucket);
+        if (!Array.isArray(objects)) objects = [];
+        renderObjectList();
+        if (selected) {
+          const updated = objects.find((o) => o.id === selected.id);
+          if (updated) selectObject(updated, true);
+          else clearPreview();
+        }
+      } catch (e) {
+        appendLog('err', 'ERR', '—', e.message);
+      }
+    }
+
+    function clearPreview() {
+      selected = null;
+      previewMediaEl.innerHTML = '';
+      previewIconEl.hidden = false;
+      previewIconEl.textContent = '📎';
+      previewDetailEl.textContent = 'Select an object to preview';
+      previewActionsEl.hidden = true;
+      transformRowEl.hidden = true;
+    }
+
+    async function selectObject(obj, skipListUpdate) {
+      selected = obj;
+      if (!skipListUpdate) renderObjectList();
+
+      previewActionsEl.hidden = false;
+      previewMediaEl.innerHTML = '';
+      previewIconEl.hidden = false;
+
+      const m = obj.metadata || {};
+      previewIconEl.textContent = StoragePlayground.fileIcon(m.mimetype);
+      transformRowEl.hidden = !canTransform(m.mimetype);
+
+      await loadPreview(obj);
+    }
+
+    async function loadPreview(obj) {
+      if (!selected || selected.id !== obj.id) return;
+
+      const m = obj.metadata || {};
+      const kind = StoragePlayground.mimeKind(m.mimetype);
+
+      if (!canTransform(m.mimetype)) {
+        previewIconEl.hidden = false;
+        previewMediaEl.innerHTML = '';
+        previewDetailEl.textContent = [
+          obj.name,
+          m.mimetype,
+          'No /image transform — use download',
+        ].join(' · ');
+        return;
+      }
+
+      const url = client.imageURL(obj.id, transformParams());
+      previewIconEl.hidden = true;
+      previewMediaEl.innerHTML = '';
+      const img = document.createElement('img');
+      img.alt = obj.name;
+      img.onload = () => appendLog('ok', 'GET', url, 200, 'image bytes');
+      img.onerror = () => {
+        previewIconEl.hidden = false;
+        previewDetailEl.textContent = `Transform failed for ${obj.name}`;
+        appendLog('err', 'GET', url, 0, 'image load error');
+      };
+      img.src = url;
+      previewMediaEl.appendChild(img);
+      previewDetailEl.textContent = [
+        obj.name,
+        kind,
+        `${tfWEl.value}×${tfHEl.value} c=${tfCEl.value}`,
+      ].join(' · ');
+    }
+
+    async function uploadFiles(fileList) {
+      const bucket = bucketIdEl.value.trim();
+      if (!bucket) {
+        appendLog('warn', 'WARN', '—', 'Bucket ID required');
+        return;
+      }
+      const files = Array.from(fileList);
+      uploadProgressEl.textContent = `Uploading ${files.length} file(s)…`;
+
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        uploadProgressEl.textContent = `Uploading ${i + 1}/${files.length}: ${file.name}`;
+        try {
+          const obj = await client.uploadFile(bucket, file);
+          appendLog('info', 'UPLOAD', '—', `Completed: ${obj.name} (${obj.id})`);
+        } catch (e) {
+          appendLog('err', 'UPLOAD', '—', `${file.name}: ${e.message}`);
+        }
+      }
+
+      uploadProgressEl.textContent = 'Done';
+      await refreshObjects();
+      setTimeout(() => { uploadProgressEl.textContent = ''; }, 2000);
+    }
+
+    async function downloadSelected() {
+      if (!selected) return;
+      try {
+        const res = await client.downloadURL(selected.id);
+        window.open(res.url, '_blank');
+      } catch (e) {
+        appendLog('err', 'ERR', '—', e.message);
+      }
+    }
+
+    async function deleteSelected() {
+      if (!selected) return;
+      if (!confirm(`Delete "${selected.name}"?`)) return;
+      const bucket = bucketIdEl.value.trim();
+      const name = selected.name;
+      try {
+        await client.deleteObject(bucket, name);
+        appendLog('info', 'DELETE', '—', `Deleted ${name}`);
+        clearPreview();
+        await refreshObjects();
+      } catch (e) {
+        appendLog('err', 'ERR', '—', e.message);
+      }
+    }
+
+    // Dropzone
+    dropzoneEl.addEventListener('click', () => fileInputEl.click());
+    fileInputEl.addEventListener('change', (e) => {
+      if (e.target.files.length) uploadFiles(e.target.files);
+      fileInputEl.value = '';
+    });
+    dropzoneEl.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropzoneEl.classList.add('dragover');
+    });
+    dropzoneEl.addEventListener('dragleave', () => dropzoneEl.classList.remove('dragover'));
+    dropzoneEl.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropzoneEl.classList.remove('dragover');
+      if (e.dataTransfer.files.length) uploadFiles(e.dataTransfer.files);
+    });
+
+    // Buttons
+    $('#btnSaveConfig').addEventListener('click', saveConfig);
+    $('#btnHealth').addEventListener('click', checkHealth);
+    $('#btnListBuckets').addEventListener('click', listBuckets);
+    $('#btnRefresh').addEventListener('click', refreshObjects);
+    $('#btnRefreshSmall').addEventListener('click', refreshObjects);
+    $('#btnDownload').addEventListener('click', downloadSelected);
+    $('#btnApplyTransform').addEventListener('click', () => selected && loadPreview(selected));
+    $('#btnDelete').addEventListener('click', deleteSelected);
+    $('#btnClearLog').addEventListener('click', () => { apiLogEl.innerHTML = ''; });
+
+    // Init
+    loadConfig();
+    initClient();
+    checkHealth();
+  </script>
+</body>
+</html>
