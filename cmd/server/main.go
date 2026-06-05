@@ -9,12 +9,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/postship/storage/internal/api"
-	"github.com/postship/storage/internal/config"
-	"github.com/postship/storage/internal/s3client"
-	"github.com/postship/storage/internal/store"
-	"github.com/postship/storage/internal/preview"
-	"github.com/postship/storage/internal/transform"
+	"github.com/SolaTyolo/storage-api/internal/api"
+	"github.com/SolaTyolo/storage-api/internal/config"
+	"github.com/SolaTyolo/storage-api/internal/s3client"
+	"github.com/SolaTyolo/storage-api/internal/store"
+	"github.com/SolaTyolo/storage-api/internal/preview"
+	"github.com/SolaTyolo/storage-api/internal/transform"
 )
 
 func main() {

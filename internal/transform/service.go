@@ -16,10 +16,10 @@ import (
 	"path/filepath"
 
 	"github.com/disintegration/imaging"
-	"github.com/postship/storage/internal/config"
-	"github.com/postship/storage/internal/mime"
-	"github.com/postship/storage/internal/model"
-	"github.com/postship/storage/internal/s3client"
+	"github.com/SolaTyolo/storage-api/internal/config"
+	"github.com/SolaTyolo/storage-api/internal/mime"
+	"github.com/SolaTyolo/storage-api/internal/model"
+	"github.com/SolaTyolo/storage-api/internal/s3client"
 )
 
 var ErrNotSupported = errors.New("transform not supported for this media type")

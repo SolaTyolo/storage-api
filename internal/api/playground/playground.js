@@ -1,5 +1,5 @@
 /**
- * Client for the Postship Storage API (/storage/v1).
+ * Client for the Storage API (/storage/v1).
  */
 class StoragePlayground {
   constructor(baseUrl = '') {

@@ -3,6 +3,9 @@
 
 CREATE SCHEMA IF NOT EXISTS storage;
 
+-- 若曾跑过带 upload_sessions 的旧 schema，清理遗留表
+DROP TABLE IF EXISTS storage.upload_sessions;
+
 CREATE TABLE IF NOT EXISTS storage.buckets (
     id              TEXT PRIMARY KEY,
     name            TEXT NOT NULL UNIQUE,

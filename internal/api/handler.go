@@ -10,14 +10,14 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 	"github.com/google/uuid"
-	"github.com/postship/storage/internal/config"
-	"github.com/postship/storage/internal/mime"
-	"github.com/postship/storage/internal/model"
-	"github.com/postship/storage/internal/s3client"
-	"github.com/postship/storage/internal/store"
-	"github.com/postship/storage/internal/preview"
-	"github.com/postship/storage/internal/transform"
-	"github.com/postship/storage/internal/uploadtoken"
+	"github.com/SolaTyolo/storage-api/internal/config"
+	"github.com/SolaTyolo/storage-api/internal/mime"
+	"github.com/SolaTyolo/storage-api/internal/model"
+	"github.com/SolaTyolo/storage-api/internal/s3client"
+	"github.com/SolaTyolo/storage-api/internal/store"
+	"github.com/SolaTyolo/storage-api/internal/preview"
+	"github.com/SolaTyolo/storage-api/internal/transform"
+	"github.com/SolaTyolo/storage-api/internal/uploadtoken"
 )
 
 type Handler struct {

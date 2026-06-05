@@ -10,7 +10,7 @@ import (
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	appconfig "github.com/postship/storage/internal/config"
+	appconfig "github.com/SolaTyolo/storage-api/internal/config"
 )
 
 type Client struct {

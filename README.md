@@ -1,4 +1,4 @@
-# Postship Storage（Go + RustFS）
+# storage-api（Go + RustFS）
 
 Supabase Storage 风格的元数据 + S3 原文件存储；交付采用 **Cloudinary 式 URL 参数**（`w`、`h`、`c`、`page`、`dpi`），由开源中间件按需渲染，**不预生成衍生文件**。
 

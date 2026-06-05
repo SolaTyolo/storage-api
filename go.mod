@@ -1,4 +1,4 @@
-module github.com/postship/storage
+module github.com/SolaTyolo/storage-api
 
 go 1.25
 

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	appconfig "github.com/postship/storage/internal/config"
+	appconfig "github.com/SolaTyolo/storage-api/internal/config"
 )
 
 // ImgproxyURL 生成 imgproxy 处理 URL（开发用 /insecure/；生产需 URL 签名）

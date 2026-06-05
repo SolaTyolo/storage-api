@@ -5,8 +5,8 @@ import (
 	"errors"
 	"io"
 
-	"github.com/postship/storage/internal/mime"
-	"github.com/postship/storage/internal/s3client"
+	"github.com/SolaTyolo/storage-api/internal/mime"
+	"github.com/SolaTyolo/storage-api/internal/s3client"
 )
 
 var ErrNotSupported = errors.New("preview not supported for this media type")

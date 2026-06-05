@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    image: ccr.ccs.tencentyun.com/solat/postgres:16-pgcron-pgnet
     environment:
       POSTGRES_USER: storage
       POSTGRES_PASSWORD: storage
@@ -10,7 +10,6 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./migrations/001_storage_schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
-      - ./migrations/002_drop_upload_sessions.sql:/docker-entrypoint-initdb.d/002_drop_sessions.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U storage -d storage"]
       interval: 3s
@@ -18,7 +17,7 @@ services:
       retries: 10
 
   rustfs:
-    image: rustfs/rustfs:latest
+    image: ccr.ccs.tencentyun.com/solat/rustfs:latest
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -32,7 +31,7 @@ services:
 
   # 开源图片变换 https://github.com/imgproxy/imgproxy
   imgproxy:
-    image: ghcr.io/imgproxy/imgproxy:latest
+    image: ccr.ccs.tencentyun.com/solat/imgproxy:latest
     ports:
       - "8081:8080"
     environment:
@@ -49,7 +48,7 @@ services:
 
   # 开源文档转换 https://github.com/gotenberg/gotenberg (MIT)
   gotenberg:
-    image: gotenberg/gotenberg:8
+    image: ccr.ccs.tencentyun.com/solat/gotenberg:8
     ports:
       - "3000:3000"
     command:
@@ -104,7 +103,7 @@ services:
         condition: service_healthy
 
   init-bucket:
-    image: amazon/aws-cli:2.22.35
+    image: ccr.ccs.tencentyun.com/solat/alpine:3.20
     depends_on:
       - rustfs
     environment:
@@ -115,18 +114,20 @@ services:
     command:
       - -c
       - |
+        apk add --no-cache aws-cli
         until aws --endpoint-url http://rustfs:9000 s3 ls 2>/dev/null; do sleep 2; done
         aws --endpoint-url http://rustfs:9000 s3 mb s3://uploads 2>/dev/null || true
         echo "bucket uploads ready"
 
   seed:
-    image: curlimages/curl:8.12.1
+    image: ccr.ccs.tencentyun.com/solat/alpine:3.20
     depends_on:
       - api
     entrypoint: /bin/sh
     command:
       - -c
       - |
+        apk add --no-cache curl
         sleep 3
         curl -sf -X POST http://api:8080/storage/v1/buckets \
           -H 'Content-Type: application/json' \
