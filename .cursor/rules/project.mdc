@@ -1,0 +1,13 @@
+---
+description: Core storage-api project rules for all agent sessions
+alwaysApply: true
+---
+
+# storage-api core rules
+
+- Go 1.25 service: Supabase Storage-compatible API, direct S3 engines, no PostgreSQL.
+- Bucket id `engine:bucket` routes to YAML-configured engines; default engine when omitted.
+- English only in code comments and docs; Chinese only in `README.zh-CN.md`.
+- Minimal diffs; reuse `registry.Resolve()`, `writeStorageErr()`, existing chi patterns.
+- Verify: `go build ./cmd/server && go build ./cmd/preview-worker`.
+- See [AGENTS.md](../../AGENTS.md) for commands and architecture.

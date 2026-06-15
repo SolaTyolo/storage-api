@@ -1,4 +1,4 @@
-// Poppler 预览 sidecar（MIT）— 依赖系统 poppler-utils (pdftoppm)
+// Poppler preview sidecar — requires system poppler-utils (pdftoppm).
 package main
 
 import (

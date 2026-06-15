@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// PopplerWorker 调用 Poppler 预览 sidecar（开源 Poppler + 薄 HTTP 封装）
+// PopplerWorker calls the Poppler preview sidecar (poppler-utils + thin HTTP wrapper).
 type PopplerWorker struct {
 	baseURL    string
 	httpClient *http.Client
@@ -24,7 +24,7 @@ func NewPopplerWorker(baseURL string) *PopplerWorker {
 	}
 }
 
-// PDFToJPEG 将 PDF 指定页渲染为 JPEG
+// PDFToJPEG rasterizes the given PDF page to JPEG bytes.
 func (p *PopplerWorker) PDFToJPEG(ctx context.Context, pdf []byte, page, dpi int) ([]byte, error) {
 	if page <= 0 {
 		page = 1

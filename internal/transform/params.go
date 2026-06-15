@@ -7,27 +7,27 @@ import (
 	"strings"
 )
 
-// Crop 模式（类似 Cloudinary c_）
+// Crop mode (similar to Cloudinary c_).
 type Crop string
 
 const (
-	CropScale Crop = "scale" // 等比缩放到 w×h 框内（默认）
-	CropFit   Crop = "fit"   // 同 scale
-	CropFill  Crop = "fill"  // 铺满后居中裁剪
-	CropPad   Crop = "pad"   // 等比放入框内并留白
-	CropThumb Crop = "thumb" // 智能缩略图
+	CropScale Crop = "scale" // Scale to fit within w×h (default)
+	CropFit   Crop = "fit"   // Same as scale
+	CropFill  Crop = "fill"  // Cover w×h then center-crop
+	CropPad   Crop = "pad"   // Fit inside w×h with padding
+	CropThumb Crop = "thumb" // Smart thumbnail
 )
 
-// Params 通过 query 传入，例如 ?w=200&h=200&c=fill&q=80&f=webp&t=1.5
+// Params are passed via query string, e.g. ?w=200&h=200&c=fill&q=80&f=webp&t=1.5
 type Params struct {
 	Width   int
 	Height  int
 	Crop    Crop
-	Quality int     // 1–100，输出 JPEG/WebP 时使用
+	Quality int     // 1–100 for JPEG/WebP output
 	Format  string  // auto | jpg | jpeg | png | webp
-	TimeSec float64 // 视频截帧时间（秒），参数 t
-	Page    int     // PDF/Office 页码，参数 page，默认 1
-	DPI     int     // PDF 渲染 DPI，参数 dpi，默认 150
+	TimeSec float64 // Video frame time in seconds (param t)
+	Page    int     // PDF/Office page number (param page, default 1)
+	DPI     int     // PDF render DPI (param dpi, default 150)
 }
 
 func ParseParams(q url.Values, maxEdge int) (Params, error) {

@@ -1,0 +1,15 @@
+---
+description: Go storage engine and S3 driver conventions
+globs: internal/engine/**/*.go
+alwaysApply: false
+---
+
+# Engine package
+
+- `engine.Engine` interface in `types.go` — all physical storage goes through it.
+- S3 driver: `s3.go`; registry and `engine:bucket` parsing: `registry.go`, `resolve.go`.
+- Bucket metadata stored at `.__storage/bucket.json` inside each physical bucket.
+- Signed URL tokens: `sign.go` (HMAC, claims: engine, bucket, path, op, exp).
+- New engine types: implement `Engine`, wire in `load.go`, add YAML `type` block.
+
+Do not bypass the registry from API handlers.

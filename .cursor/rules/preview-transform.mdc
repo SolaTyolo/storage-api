@@ -1,0 +1,17 @@
+---
+description: Preview and transform pipeline conventions
+globs: internal/{preview,transform}/**/*
+alwaysApply: false
+---
+
+# Preview and transform
+
+- Transforms are on-demand only — never write derivatives to object storage.
+- `transform.Service` takes `engine.Registry`; reads objects via resolved engine.
+- Supabase query params: `width`, `height`, `resize`, `format`, `quality` — mapped in `supabase.go`.
+- Extended params: `page`, `dpi`, `t` for PDF/Office/video.
+- PDF rasterization: HTTP call to preview-worker (`internal/preview/poppler.go`).
+- Office: Gotenberg → PDF → Poppler (`gotenberg.go`).
+- imgproxy optional via `TRANSFORM_BACKEND=imgproxy` for images only.
+
+Poppler must not be linked into `cmd/server` — sidecar only (GPL).

@@ -1,21 +1,4 @@
 services:
-  postgres:
-    image: ccr.ccs.tencentyun.com/solat/postgres:16-pgcron-pgnet
-    environment:
-      POSTGRES_USER: storage
-      POSTGRES_PASSWORD: storage
-      POSTGRES_DB: storage
-    ports:
-      - "5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-      - ./migrations/001_storage_schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U storage -d storage"]
-      interval: 3s
-      timeout: 5s
-      retries: 10
-
   rustfs:
     image: ccr.ccs.tencentyun.com/solat/rustfs:latest
     ports:
@@ -29,7 +12,6 @@ services:
       - rustfs-data:/data
     command: ["/data"]
 
-  # 开源图片变换 https://github.com/imgproxy/imgproxy
   imgproxy:
     image: ccr.ccs.tencentyun.com/solat/imgproxy:latest
     ports:
@@ -46,7 +28,6 @@ services:
     depends_on:
       - rustfs
 
-  # 开源文档转换 https://github.com/gotenberg/gotenberg (MIT)
   gotenberg:
     image: ccr.ccs.tencentyun.com/solat/gotenberg:8
     ports:
@@ -55,11 +36,10 @@ services:
       - gotenberg
       - --api-port=3000
 
-  # Poppler 栅格化 sidecar（Poppler GPL + 薄 HTTP 封装）
   preview-worker:
     build:
-      context: .
-      dockerfile: docker/preview-worker/Dockerfile
+      context: ..
+      dockerfile: deploy/preview-worker/Dockerfile
     ports:
       - "8090:8090"
     healthcheck:
@@ -70,19 +50,14 @@ services:
 
   api:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: deploy/Dockerfile
     ports:
       - "8080:8080"
     environment:
       HTTP_ADDR: ":8080"
-      DATABASE_URL: postgres://storage:storage@postgres:5432/storage?sslmode=disable
-      S3_ENDPOINT: http://rustfs:9000
-      S3_REGION: us-east-1
-      S3_ACCESS_KEY_ID: rustfsadmin
-      S3_SECRET_ACCESS_KEY: rustfsadmin
-      S3_BUCKET: uploads
-      S3_USE_PATH_STYLE: "true"
+      STORAGE_CONFIG_PATH: /etc/storage-api/storage.yaml
+      STORAGE_DEFAULT_ENGINE: rustfs
       FFMPEG_PATH: /usr/bin/ffmpeg
       UPLOAD_SIGNING_SECRET: dev-upload-secret-change-me
       TRANSFORM_BACKEND: imgproxy
@@ -90,9 +65,9 @@ services:
       IMGPROXY_INSECURE: "true"
       GOTENBERG_URL: http://gotenberg:3000
       POPPLER_WORKER_URL: http://preview-worker:8090
+    volumes:
+      - ./storage.docker.yaml:/etc/storage-api/storage.yaml:ro
     depends_on:
-      postgres:
-        condition: service_healthy
       rustfs:
         condition: service_started
       imgproxy:
@@ -106,33 +81,19 @@ services:
     image: ccr.ccs.tencentyun.com/solat/alpine:3.20
     depends_on:
       - rustfs
-    environment:
-      AWS_ACCESS_KEY_ID: rustfsadmin
-      AWS_SECRET_ACCESS_KEY: rustfsadmin
-      AWS_DEFAULT_REGION: us-east-1
-    entrypoint: /bin/sh
-    command:
-      - -c
-      - |
-        apk add --no-cache aws-cli
-        until aws --endpoint-url http://rustfs:9000 s3 ls 2>/dev/null; do sleep 2; done
-        aws --endpoint-url http://rustfs:9000 s3 mb s3://uploads 2>/dev/null || true
-        echo "bucket uploads ready"
-
-  seed:
-    image: ccr.ccs.tencentyun.com/solat/alpine:3.20
-    depends_on:
       - api
     entrypoint: /bin/sh
     command:
       - -c
       - |
-        apk add --no-cache curl
+        apk add --no-cache aws-cli curl
+        until aws --endpoint-url http://rustfs:9000 s3 ls 2>/dev/null; do sleep 2; done
+        aws --endpoint-url http://rustfs:9000 s3 mb s3://uploads 2>/dev/null || true
         sleep 3
-        curl -sf -X POST http://api:8080/storage/v1/buckets \
+        curl -sf -X POST http://api:8080/storage/v1/bucket \
           -H 'Content-Type: application/json' \
           -d '{"id":"uploads","name":"uploads","public":true}' || true
+        echo "bucket uploads ready"
 
 volumes:
-  pgdata:
   rustfs-data:

@@ -1,51 +1,49 @@
 package model
 
 import (
-	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
 )
 
+// Bucket matches Supabase Storage bucket JSON.
 type Bucket struct {
-	ID               string     `json:"id"`
-	Name             string     `json:"name"`
-	Owner            *uuid.UUID `json:"owner,omitempty"`
-	Public           bool       `json:"public"`
-	FileSizeLimit    *int64     `json:"file_size_limit,omitempty"`
-	AllowedMimeTypes []string   `json:"allowed_mime_types,omitempty"`
-	CreatedAt        time.Time  `json:"created_at"`
-	UpdatedAt        time.Time  `json:"updated_at"`
+	ID               string    `json:"id"`
+	Name             string    `json:"name"`
+	Public           bool      `json:"public"`
+	Owner            string    `json:"owner,omitempty"`
+	FileSizeLimit    *int64    `json:"file_size_limit"`
+	AllowedMimeTypes []string  `json:"allowed_mime_types"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
 }
 
-type ObjectMetadata struct {
-	MimeType        string         `json:"mimetype,omitempty"`
-	Size            int64          `json:"size,omitempty"`
-	ETag            string         `json:"etag,omitempty"`
-	S3Key  string         `json:"s3_key,omitempty"`
-	Custom map[string]any `json:"-"`
-}
-
-func (m ObjectMetadata) ToMap() map[string]any {
-	b, _ := json.Marshal(m)
-	var base map[string]any
-	_ = json.Unmarshal(b, &base)
-	for k, v := range m.Custom {
-		base[k] = v
-	}
-	if base == nil {
-		base = map[string]any{}
-	}
-	return base
-}
-
-type StorageObject struct {
-	ID             uuid.UUID      `json:"id"`
-	BucketID       string         `json:"bucket_id"`
+// FileObject matches Supabase list/info response.
+type FileObject struct {
 	Name           string         `json:"name"`
-	Owner          *uuid.UUID     `json:"owner,omitempty"`
-	CreatedAt      time.Time      `json:"created_at"`
+	ID             string         `json:"id"`
 	UpdatedAt      time.Time      `json:"updated_at"`
+	CreatedAt      time.Time      `json:"created_at"`
 	LastAccessedAt time.Time      `json:"last_accessed_at"`
-	Metadata       ObjectMetadata `json:"metadata"`
+	Metadata       FileMetadata   `json:"metadata"`
+}
+
+type FileMetadata struct {
+	ETag     string `json:"eTag,omitempty"`
+	Size     int64  `json:"size,omitempty"`
+	MimeType string `json:"mimetype,omitempty"`
+	CacheControl string `json:"cacheControl,omitempty"`
+}
+
+// ObjectRef identifies an object in a physical engine.
+type ObjectRef struct {
+	Engine      string
+	Bucket      string
+	Path        string
+	ContentType string
+	Size        int64
+}
+
+func ObjectUUID(engine, bucket, path string) uuid.UUID {
+	return uuid.NewSHA1(uuid.NameSpaceURL, []byte(engine+"/"+bucket+"/"+path))
 }

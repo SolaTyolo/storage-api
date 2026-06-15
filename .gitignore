@@ -1,14 +1,14 @@
-# 环境变量（保留 .env.example）
+# Environment (keep .env.example)
 .env
 !.env.example
 .env.local
 .env.*.local
 
-# 日志
+# Logs
 *.log
 logs/
 
-# 操作系统
+# OS
 .DS_Store
 Thumbs.db
 
@@ -18,7 +18,10 @@ Thumbs.db
 *.swp
 *.swo
 
-# 临时文件
+# Temp files
 *.tmp
 *.temp
 
+# Go build artifacts
+/server
+/preview-worker

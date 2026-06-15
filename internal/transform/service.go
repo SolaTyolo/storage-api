@@ -17,24 +17,23 @@ import (
 
 	"github.com/disintegration/imaging"
 	"github.com/SolaTyolo/storage-api/internal/config"
+	"github.com/SolaTyolo/storage-api/internal/engine"
 	"github.com/SolaTyolo/storage-api/internal/mime"
 	"github.com/SolaTyolo/storage-api/internal/model"
-	"github.com/SolaTyolo/storage-api/internal/s3client"
 )
 
 var ErrNotSupported = errors.New("transform not supported for this media type")
 
 type Service struct {
-	s3       *s3client.Client
+	registry *engine.Registry
 	maxEdge  int
 	ffmpeg   string
 }
 
-func New(cfg config.Config, s3 *s3client.Client) *Service {
-	return &Service{s3: s3, maxEdge: cfg.TransformMaxEdge, ffmpeg: cfg.FFmpegPath}
+func New(cfg config.Config, registry *engine.Registry) *Service {
+	return &Service{registry: registry, maxEdge: cfg.TransformMaxEdge, ffmpeg: cfg.FFmpegPath}
 }
 
-// RenderJPEG 对已栅格化的 JPEG（如 PDF 首页）做 w/h 变换。
 func (s *Service) RenderJPEG(jpeg []byte, p Params) ([]byte, string, error) {
 	img, err := imaging.Decode(bytes.NewReader(jpeg))
 	if err != nil {
@@ -46,21 +45,24 @@ func (s *Service) RenderJPEG(jpeg []byte, p Params) ([]byte, string, error) {
 	return encode(img, p)
 }
 
-// Render 从 S3 原图/视频按需变换，不落库、不写衍生对象。
-func (s *Service) Render(ctx context.Context, obj model.StorageObject, p Params) ([]byte, string, error) {
-	kind := mime.Classify(obj.Metadata.MimeType)
+func (s *Service) Render(ctx context.Context, obj model.ObjectRef, p Params) ([]byte, string, error) {
+	kind := mime.Classify(obj.ContentType)
 	if kind != mime.KindImage && kind != mime.KindVideo {
 		return nil, "", ErrNotSupported
 	}
 
+	eng, err := s.registry.Engine(obj.Engine)
+	if err != nil {
+		return nil, "", err
+	}
+
 	var img image.Image
-	var err error
 
 	switch kind {
 	case mime.KindImage:
-		img, err = s.loadImage(ctx, obj.Metadata.S3Key)
+		img, err = s.loadImage(ctx, eng, obj.Bucket, obj.Path)
 	case mime.KindVideo:
-		img, err = s.loadVideoFrame(ctx, obj.Metadata.S3Key, p.TimeSec)
+		img, err = s.loadVideoFrame(ctx, eng, obj.Bucket, obj.Path, p.TimeSec)
 	}
 	if err != nil {
 		return nil, "", err
@@ -73,8 +75,8 @@ func (s *Service) Render(ctx context.Context, obj model.StorageObject, p Params)
 	return encode(img, p)
 }
 
-func (s *Service) loadImage(ctx context.Context, key string) (image.Image, error) {
-	body, err := s.s3.Get(ctx, key)
+func (s *Service) loadImage(ctx context.Context, eng engine.Engine, bucket, key string) (image.Image, error) {
+	body, _, err := eng.GetObject(ctx, bucket, key)
 	if err != nil {
 		return nil, err
 	}
@@ -82,7 +84,7 @@ func (s *Service) loadImage(ctx context.Context, key string) (image.Image, error
 	return imaging.Decode(body)
 }
 
-func (s *Service) loadVideoFrame(ctx context.Context, key string, timeSec float64) (image.Image, error) {
+func (s *Service) loadVideoFrame(ctx context.Context, eng engine.Engine, bucket, key string, timeSec float64) (image.Image, error) {
 	tmpDir, err := os.MkdirTemp("", "transform-video-*")
 	if err != nil {
 		return nil, err
@@ -92,7 +94,7 @@ func (s *Service) loadVideoFrame(ctx context.Context, key string, timeSec float6
 	srcPath := filepath.Join(tmpDir, "source")
 	outPath := filepath.Join(tmpDir, "frame.jpg")
 
-	body, err := s.s3.Get(ctx, key)
+	body, _, err := eng.GetObject(ctx, bucket, key)
 	if err != nil {
 		return nil, err
 	}
@@ -165,7 +167,6 @@ func encode(img image.Image, p Params) ([]byte, string, error) {
 		}
 		return buf.Bytes(), "image/png", nil
 	case "webp":
-		// 无原生 webp 编码依赖时用 JPEG 作为回退
 		if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: p.Quality}); err != nil {
 			return nil, "", err
 		}

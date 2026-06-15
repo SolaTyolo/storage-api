@@ -1,86 +1,115 @@
-# 架构说明（Supabase Storage 风格 + Go + RustFS）
+# Architecture
 
-## 数据分层
+## Overview
 
-与 [Supabase Storage](https://supabase.com/docs/guides/storage/schema/design) 相同：**Postgres 存元数据，S3 只存原文件**。
-
-| 层 | 内容 |
-| --- | --- |
-| `storage.buckets` / `storage.objects` | 桶与对象元数据 |
-| S3（RustFS） | **仅原始上传字节**，不存衍生缩略图 |
-
-`metadata` 约定字段：
-
-```json
-{
-  "mimetype": "image/jpeg",
-  "size": 102400,
-  "etag": "\"abc\"",
-  "s3_key": "uploads/photos/cat.jpg"
-}
-```
-
-## 上传流程（Presigned URL）
-
-```mermaid
-sequenceDiagram
-  participant Client
-  participant API as Go API
-  participant PG as Postgres
-  participant S3 as RustFS
-
-  Client->>API: POST .../uploads/presign
-  API-->>Client: presigned_url + complete_token (HMAC 签名)
-  Client->>S3: PUT presigned_url
-  Client->>API: POST .../uploads/complete { complete_token }
-  API->>S3: HeadObject
-  API->>PG: upsert storage.objects
-```
-
-交付栈（imgproxy + Gotenberg + Poppler）见 [TRANSFORM_BACKENDS.md](./TRANSFORM_BACKENDS.md)。
-
-## 图片交付（Cloudinary 风格，按需变换）
-
-**不预生成、不写入 S3 缩略图路径。** 客户端用 URL 查询参数描述变换，服务端从原图实时渲染：
+`storage-api` implements a **Supabase Storage-compatible REST API** that proxies directly to physical object stores. There is **no PostgreSQL** and no logical/metadata bucket layer.
 
 ```
-GET /storage/v1/objects/{object_id}/image?w=200&h=200&c=fill&q=80&f=jpg&t=1
+Client (supabase-js storage SDK)
+        │
+        ▼
+  /storage/v1/*  (Go API)
+        │
+        ├─ engine registry (YAML + STORAGE_DEFAULT_ENGINE)
+        │
+        └─ physical engines (S3-compatible: RustFS, MinIO, AWS S3, …)
 ```
 
-| 参数 | 含义 |
-| --- | --- |
-| `w` | 目标宽度（px） |
-| `h` | 目标高度（px） |
-| `c` | `scale` \| `fit` \| `fill` \| `pad` \| `thumb` |
-| `q` | JPEG 质量 1–100 |
-| `f` | `auto` \| `jpg` \| `png` \| `webp` |
-| `t` | 视频截帧时间（秒），默认 `1` |
+## Bucket routing
 
-| 类型 | 行为 |
-| --- | --- |
-| `image/*` | 从 S3 读原图 → 变换 → 返回字节流 |
-| `video/*` | ffmpeg 按 `t` 截帧 → 再按 `w`/`h`/`c` 变换 |
-| 其他 | `415`，请用 `download-url` 或前端 MIME 图标 |
+Supabase assumes one physical backend per project. This service supports multiple engines via bucket id encoding:
 
-响应带 `Cache-Control`，便于 CDN 按完整 URL 缓存。
+| Bucket id | Resolves to |
+|-----------|-------------|
+| `uploads` | default engine → physical bucket `uploads` |
+| `rustfs:uploads` | engine `rustfs` → physical bucket `uploads` |
+| `minio:avatars` | engine `minio` → physical bucket `avatars` |
 
-### 普通文件
+Parsing uses the **first** `:` as the engine/bucket separator.
 
-PDF / zip / doc 等不走 `/image`；使用 `GET .../download-url` 或静态图标。
+## Configuration
 
-## HTTP API 摘要
-
-- `POST /storage/v1/buckets/{id}/uploads/presign` → `presigned_url`, `complete_token`
-- `POST /storage/v1/buckets/{id}/uploads/complete` → body: `{ "complete_token" }`
-- `GET /storage/v1/objects/{objectId}/image?w=&h=&c=&q=&f=&t=`
-- `GET /storage/v1/objects/{objectId}/download-url`
-
-## 本地启动
-
-```bash
-docker compose up -d --build
-chmod +x scripts/test-upload.sh
-./scripts/test-upload.sh /path/to/image.png
+```yaml
+# config/storage.yaml
+default_engine: rustfs
+engines:
+  rustfs:
+    type: s3
+    endpoint: http://rustfs:9000
+    region: us-east-1
+    access_key_id: rustfsadmin
+    secret_access_key: rustfsadmin
+    path_style: true
 ```
 
-Playground：http://localhost:8080/playground/
+- `STORAGE_CONFIG_PATH` — path to YAML file
+- `STORAGE_DEFAULT_ENGINE` — optional override for `default_engine`
+
+Bucket metadata (`public`, `file_size_limit`, `allowed_mime_types`) is stored as `.__storage/bucket.json` inside each physical bucket.
+
+## API surface (Supabase Storage)
+
+Base path: `/storage/v1`
+
+### Buckets
+
+| Method | Path | SDK method |
+|--------|------|------------|
+| GET | `/bucket` | `listBuckets()` |
+| POST | `/bucket` | `createBucket()` |
+| GET | `/bucket/{id}` | `getBucket()` |
+| PUT | `/bucket/{id}` | `updateBucket()` |
+| DELETE | `/bucket/{id}` | `deleteBucket()` |
+| POST | `/bucket/{id}/empty` | `emptyBucket()` |
+
+### Objects
+
+| Method | Path | SDK method |
+|--------|------|------------|
+| POST | `/object/{bucket}/{path}` | `upload()` |
+| PUT | `/object/{bucket}/{path}` | `update()` |
+| GET | `/object/{bucket}/{path}` | `download()` |
+| GET | `/object/public/{bucket}/{path}` | `getPublicUrl()` |
+| POST | `/object/list/{bucket}` | `list()` |
+| DELETE | `/object/{bucket}` | `remove()` (body: `{prefixes:[]}`) |
+| POST | `/object/copy` | `copy()` |
+| POST | `/object/move` | `move()` |
+| POST | `/object/sign/{bucket}/{path}` | `createSignedUrl()` |
+| POST | `/object/upload/sign/{bucket}/{path}` | `createSignedUploadUrl()` |
+
+### Image transform / preview
+
+| Method | Path | Notes |
+|--------|------|-------|
+| GET | `/render/image/public/{bucket}/{path}` | Supabase transform query params |
+| GET | `/render/image/authenticated/{bucket}/{path}` | Same, for private buckets |
+
+Supabase params: `width`, `height`, `resize`, `format`, `quality`.
+
+Extended params (PDF/Office/video): `page`, `dpi`, `t`.
+
+Pipeline:
+
+- **image** → imgproxy (optional) or internal imaging
+- **video** → ffmpeg frame + imaging
+- **PDF** → Poppler worker → imaging
+- **Office** → Gotenberg → PDF → Poppler → imaging
+
+## Docker stack (dev)
+
+Compose file: [`deploy/docker-compose.yml`](../deploy/docker-compose.yml)
+
+| Service | Role |
+|---------|------|
+| rustfs | S3-compatible object store |
+| api | This service |
+| imgproxy | Image transforms (reads S3 directly) |
+| gotenberg | Office → PDF |
+| preview-worker | PDF → JPEG (Poppler sidecar) |
+| init-bucket | Creates `uploads` bucket via API |
+
+## Design principles
+
+1. **No derivative objects** — transforms are computed on read; originals only in S3.
+2. **SDK-first** — route shapes and response fields match `storage-js`.
+3. **Engine pluggable** — new backends implement `engine.Engine` and are registered in YAML.

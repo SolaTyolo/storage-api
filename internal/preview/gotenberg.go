@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// Gotenberg 开源文档转换 https://github.com/gotenberg/gotenberg (MIT)
+// Gotenberg document conversion client — https://github.com/gotenberg/gotenberg (MIT)
 type Gotenberg struct {
 	baseURL    string
 	httpClient *http.Client
@@ -26,7 +26,7 @@ func NewGotenberg(baseURL string) *Gotenberg {
 	}
 }
 
-// ToPDF 将 Office / 可转换文档转为 PDF 字节
+// ToPDF converts Office or other supported documents to PDF bytes.
 func (g *Gotenberg) ToPDF(ctx context.Context, filename string, body io.Reader) ([]byte, error) {
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)

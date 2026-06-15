@@ -9,7 +9,7 @@ const (
 	KindVideo    MediaKind = "video"
 	KindAudio    MediaKind = "audio"
 	KindPDF      MediaKind = "pdf"
-	KindDocument MediaKind = "document" // Office 等，经 Gotenberg 转 PDF
+	KindDocument MediaKind = "document" // Office etc., converted to PDF via Gotenberg
 	KindFile     MediaKind = "file"
 )
 
@@ -59,13 +59,13 @@ func TransformSupported(contentType string) bool {
 	return k == KindImage || k == KindVideo
 }
 
-// PreviewSupported 可通过 Gotenberg + Poppler 渲染首页预览
+// PreviewSupported reports whether Gotenberg + Poppler can rasterize a preview.
 func PreviewSupported(contentType string) bool {
 	k := Classify(contentType)
 	return k == KindImage || k == KindVideo || k == KindPDF || k == KindDocument
 }
 
-// DeliverySupported 可走 /image 端点（含预览管线）
+// DeliverySupported reports whether the render/image endpoint can serve this type.
 func DeliverySupported(contentType string) bool {
 	return PreviewSupported(contentType)
 }

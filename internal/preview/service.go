@@ -5,19 +5,20 @@ import (
 	"errors"
 	"io"
 
+	"github.com/SolaTyolo/storage-api/internal/engine"
 	"github.com/SolaTyolo/storage-api/internal/mime"
-	"github.com/SolaTyolo/storage-api/internal/s3client"
+	"github.com/SolaTyolo/storage-api/internal/model"
 )
 
 var ErrNotSupported = errors.New("preview not supported for this media type")
 
 type Service struct {
-	s3       *s3client.Client
+	registry  *engine.Registry
 	gotenberg *Gotenberg
-	poppler  *PopplerWorker
+	poppler   *PopplerWorker
 }
 
-func New(s3 *s3client.Client, gotenbergURL, popplerURL string) *Service {
+func New(registry *engine.Registry, gotenbergURL, popplerURL string) *Service {
 	var g *Gotenberg
 	var p *PopplerWorker
 	if gotenbergURL != "" {
@@ -26,33 +27,36 @@ func New(s3 *s3client.Client, gotenbergURL, popplerURL string) *Service {
 	if popplerURL != "" {
 		p = NewPopplerWorker(popplerURL)
 	}
-	return &Service{s3: s3, gotenberg: g, poppler: p}
+	return &Service{registry: registry, gotenberg: g, poppler: p}
 }
 
-// Rasterize 将对象转为 JPEG 栅格图（首页），供后续 w/h 变换
-func (s *Service) Rasterize(ctx context.Context, s3Key, contentType, objectName string, page, dpi int) ([]byte, error) {
-	kind := mime.Classify(contentType)
-	if !mime.PreviewSupported(contentType) {
+func (s *Service) Rasterize(ctx context.Context, obj model.ObjectRef, page, dpi int) ([]byte, error) {
+	kind := mime.Classify(obj.ContentType)
+	if !mime.PreviewSupported(obj.ContentType) {
 		return nil, ErrNotSupported
 	}
 
 	switch kind {
 	case mime.KindImage, mime.KindVideo:
-		return nil, ErrNotSupported // 由 transform 处理
+		return nil, ErrNotSupported
 	case mime.KindPDF:
-		return s.pdfPage(ctx, s3Key, page, dpi)
+		return s.pdfPage(ctx, obj, page, dpi)
 	case mime.KindDocument:
-		return s.officePage(ctx, s3Key, objectName, page, dpi)
+		return s.officePage(ctx, obj, page, dpi)
 	default:
 		return nil, ErrNotSupported
 	}
 }
 
-func (s *Service) pdfPage(ctx context.Context, s3Key string, page, dpi int) ([]byte, error) {
+func (s *Service) pdfPage(ctx context.Context, obj model.ObjectRef, page, dpi int) ([]byte, error) {
 	if s.poppler == nil {
 		return nil, errors.New("poppler preview worker not configured")
 	}
-	body, err := s.s3.Get(ctx, s3Key)
+	eng, err := s.registry.Engine(obj.Engine)
+	if err != nil {
+		return nil, err
+	}
+	body, _, err := eng.GetObject(ctx, obj.Bucket, obj.Path)
 	if err != nil {
 		return nil, err
 	}
@@ -64,19 +68,24 @@ func (s *Service) pdfPage(ctx context.Context, s3Key string, page, dpi int) ([]b
 	return s.poppler.PDFToJPEG(ctx, pdf, page, dpi)
 }
 
-func (s *Service) officePage(ctx context.Context, s3Key, objectName string, page, dpi int) ([]byte, error) {
+func (s *Service) officePage(ctx context.Context, obj model.ObjectRef, page, dpi int) ([]byte, error) {
 	if s.gotenberg == nil {
 		return nil, errors.New("gotenberg not configured")
 	}
 	if s.poppler == nil {
 		return nil, errors.New("poppler preview worker not configured")
 	}
-	body, err := s.s3.Get(ctx, s3Key)
+	eng, err := s.registry.Engine(obj.Engine)
+	if err != nil {
+		return nil, err
+	}
+	body, _, err := eng.GetObject(ctx, obj.Bucket, obj.Path)
 	if err != nil {
 		return nil, err
 	}
 	defer body.Close()
-	pdf, err := s.gotenberg.ToPDF(ctx, objectName, body)
+	name := obj.Path
+	pdf, err := s.gotenberg.ToPDF(ctx, name, body)
 	if err != nil {
 		return nil, err
 	}

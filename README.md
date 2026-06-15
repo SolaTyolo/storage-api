@@ -1,40 +1,78 @@
-# storage-api（Go + RustFS）
+# storage-api (Go + RustFS)
 
-Supabase Storage 风格的元数据 + S3 原文件存储；交付采用 **Cloudinary 式 URL 参数**（`w`、`h`、`c`、`page`、`dpi`），由开源中间件按需渲染，**不预生成衍生文件**。
+Supabase Storage SDK–compatible HTTP API that talks directly to physical storage engines (S3-compatible). No PostgreSQL, no logical buckets.
 
-| 组件 | 用途 |
-|------|------|
-| **imgproxy** (MIT) | 图片变换 |
-| **Gotenberg** (MIT) | Office → PDF |
-| **preview-worker** (Poppler) | PDF 页 → JPEG |
-| 内置 ffmpeg / imaging | 视频截帧、栅格图再缩放 |
+[中文文档](./README.zh-CN.md)
 
-## 快速启动
+- **Multi-engine**: YAML config + `STORAGE_DEFAULT_ENGINE` env var
+- **Bucket routing**: `engine:bucket` (e.g. `rustfs:uploads`); omit engine to use the default
+- **Preview**: on-demand rendering for images, video, PDF, and Office (imgproxy, Gotenberg, Poppler, ffmpeg)
+
+## Quick start
 
 ```bash
-docker compose up -d --build
+docker compose -f deploy/docker-compose.yml up -d --build
 ```
 
 - Playground: http://localhost:8080/playground/
-- 变换示例: `GET /storage/v1/objects/{id}/image?w=320&h=200&c=fill&q=85`
+- Transform example: `GET /storage/v1/render/image/public/uploads/photo.png?width=320&height=200&resize=cover`
 
 ```bash
 cp .env.example .env
 go run ./cmd/server
 ```
 
-## 目录结构
+## Configuration
+
+`config/storage.yaml`:
+
+```yaml
+default_engine: rustfs
+engines:
+  rustfs:
+    type: s3
+    endpoint: http://localhost:9000
+    region: us-east-1
+    access_key_id: rustfsadmin
+    secret_access_key: rustfsadmin
+    path_style: true
+```
+
+Environment variables:
+
+| Variable | Description |
+|----------|-------------|
+| `STORAGE_CONFIG_PATH` | Path to YAML config |
+| `STORAGE_DEFAULT_ENGINE` | Override default engine |
+| `UPLOAD_SIGNING_SECRET` | HMAC secret for signed URL tokens |
+
+## Supabase SDK usage
+
+```typescript
+const supabase = createClient(url, key, {
+  global: { fetch: customFetch },
+});
+// bucket id supports engine:bucket format
+await supabase.storage.from('rustfs:uploads').upload('a.png', file);
+await supabase.storage.from('uploads').download('a.png');
+```
+
+## Project layout
 
 ```
 cmd/server/
-internal/api/          # HTTP + playground
-internal/transform/    # 按需图像变换
-migrations/
-docker-compose.yml
+internal/api/          # Supabase Storage HTTP API
+internal/engine/       # Multi-engine registry and S3 driver
+internal/transform/    # On-demand image transforms
+internal/preview/      # PDF/Office preview pipeline
+config/storage.yaml    # Local / non-Docker storage config
+deploy/                # Docker Compose, Dockerfiles, container config
 ```
 
-详见 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)、[docs/TRANSFORM_BACKENDS.md](./docs/TRANSFORM_BACKENDS.md)。
+See [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) and [docs/TRANSFORM_BACKENDS.md](./docs/TRANSFORM_BACKENDS.md).
 
-## 许可证
+Agent instructions: [AGENTS.md](./AGENTS.md)
+
+## License
 
 MIT
