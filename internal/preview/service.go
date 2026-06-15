@@ -18,14 +18,14 @@ type Service struct {
 	poppler   *PopplerWorker
 }
 
-func New(registry *engine.Registry, gotenbergURL, popplerURL string) *Service {
+func New(registry *engine.Registry, gotenbergURL, popplerURL, sidecarToken string) *Service {
 	var g *Gotenberg
 	var p *PopplerWorker
 	if gotenbergURL != "" {
-		g = NewGotenberg(gotenbergURL)
+		g = NewGotenberg(gotenbergURL, sidecarToken)
 	}
 	if popplerURL != "" {
-		p = NewPopplerWorker(popplerURL)
+		p = NewPopplerWorker(popplerURL, sidecarToken)
 	}
 	return &Service{registry: registry, gotenberg: g, poppler: p}
 }

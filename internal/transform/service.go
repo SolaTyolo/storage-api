@@ -167,10 +167,7 @@ func encode(img image.Image, p Params) ([]byte, string, error) {
 		}
 		return buf.Bytes(), "image/png", nil
 	case "webp":
-		if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: p.Quality}); err != nil {
-			return nil, "", err
-		}
-		return buf.Bytes(), "image/jpeg", nil
+		return nil, "", ErrNotSupported
 	default:
 		if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: p.Quality}); err != nil {
 			return nil, "", err

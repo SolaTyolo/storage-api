@@ -4,10 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"mime"
 	"mime/multipart"
 	"net/http"
-	"net/url"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -30,7 +30,7 @@ func (h *Handler) putObject(w http.ResponseWriter, r *http.Request, isUpdate boo
 	bucketID := chi.URLParam(r, "bucketName")
 	objectPath := strings.TrimPrefix(chi.URLParam(r, "*"), "/")
 
-	resolved, eng, err := h.registry.Resolve(bucketID)
+	resolved, eng, err := h.registry.Resolve(r.Context(), bucketID)
 	if err != nil {
 		writeStorageErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
@@ -47,6 +47,18 @@ func (h *Handler) putObject(w http.ResponseWriter, r *http.Request, isUpdate boo
 	}
 	defer body.Close()
 
+	if err := validateUploadPolicy(resolved, contentType, r.ContentLength); err != nil {
+		if errors.Is(err, errFileTooLarge) {
+			writeStorageErr(w, http.StatusBadRequest, "invalid_request", err.Error())
+			return
+		}
+		writeStorageErr(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	if resolved.FileSizeLimit != nil && *resolved.FileSizeLimit > 0 {
+		body = limitUploadBody(body, *resolved.FileSizeLimit)
+	}
+
 	if !isUpdate && !upsertHeader(r) {
 		if _, err := eng.HeadObject(r.Context(), resolved.Bucket, objectPath); err == nil {
 			writeStorageErr(w, http.StatusConflict, "Duplicate", "The resource already exists")
@@ -54,13 +66,20 @@ func (h *Handler) putObject(w http.ResponseWriter, r *http.Request, isUpdate boo
 		}
 	}
 
-	if err := eng.PutObject(r.Context(), resolved.Bucket, objectPath, contentType, body, metadata); err != nil {
+	if err := eng.PutObject(r.Context(), resolved.Bucket, objectPath, contentType, cacheControl, body, metadata); err != nil {
+		if errors.Is(err, errFileTooLarge) {
+			writeStorageErr(w, http.StatusBadRequest, "invalid_request", err.Error())
+			return
+		}
+		h.logError(r, "object put failed", "engine", resolved.Engine, "bucket", resolved.Bucket, "path", objectPath, "error", err.Error())
 		writeStorageErr(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
-	if cacheControl != "" {
-		_ = cacheControl
+	op := "upload"
+	if isUpdate {
+		op = "update"
 	}
+	h.logStorage(r, op, resolved.Engine, resolved.Bucket, objectPath, "display_id", resolved.DisplayID, "content_type", contentType)
 
 	id := model.ObjectUUID(resolved.Engine, resolved.Bucket, objectPath).String()
 	writeJSON(w, http.StatusOK, map[string]string{
@@ -70,24 +89,25 @@ func (h *Handler) putObject(w http.ResponseWriter, r *http.Request, isUpdate boo
 }
 
 func (h *Handler) getObject(w http.ResponseWriter, r *http.Request) {
-	h.serveObject(w, r, false)
+	h.serveObject(w, r)
 }
 
 func (h *Handler) getPublicObject(w http.ResponseWriter, r *http.Request) {
-	h.serveObject(w, r, true)
+	h.redirectPublicObject(w, r)
 }
 
-func (h *Handler) serveObject(w http.ResponseWriter, r *http.Request, requirePublic bool) {
+func (h *Handler) serveObject(w http.ResponseWriter, r *http.Request) {
 	bucketID := chi.URLParam(r, "bucketName")
 	objectPath := strings.TrimPrefix(chi.URLParam(r, "*"), "/")
 
-	resolved, eng, err := h.registry.Resolve(bucketID)
+	resolved, eng, err := h.registry.Resolve(r.Context(), bucketID)
 	if err != nil {
 		writeStorageErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	if requirePublic && !resolved.Public {
-		writeStorageErr(w, http.StatusForbidden, "access_denied", "bucket is not public")
+
+	if strings.EqualFold(h.cfg.AuthDownloadMode, "redirect") {
+		h.redirectPresignedGet(w, r, resolved, eng, objectPath, h.cfg.PresignExpires, "authenticated object redirect")
 		return
 	}
 
@@ -128,7 +148,7 @@ func (h *Handler) headObject(w http.ResponseWriter, r *http.Request) {
 	bucketID := chi.URLParam(r, "bucketName")
 	objectPath := strings.TrimPrefix(chi.URLParam(r, "*"), "/")
 
-	resolved, eng, err := h.registry.Resolve(bucketID)
+	resolved, eng, err := h.registry.Resolve(r.Context(), bucketID)
 	if err != nil {
 		writeStorageErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
@@ -158,7 +178,7 @@ func (h *Handler) objectInfo(w http.ResponseWriter, r *http.Request) {
 	bucketID := chi.URLParam(r, "bucketName")
 	objectPath := strings.TrimPrefix(chi.URLParam(r, "*"), "/")
 
-	resolved, eng, err := h.registry.Resolve(bucketID)
+	resolved, eng, err := h.registry.Resolve(r.Context(), bucketID)
 	if err != nil {
 		writeStorageErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
@@ -179,15 +199,17 @@ func (h *Handler) deleteOneObject(w http.ResponseWriter, r *http.Request) {
 	bucketID := chi.URLParam(r, "bucketName")
 	objectPath := strings.TrimPrefix(chi.URLParam(r, "*"), "/")
 
-	resolved, eng, err := h.registry.Resolve(bucketID)
+	resolved, eng, err := h.registry.Resolve(r.Context(), bucketID)
 	if err != nil {
 		writeStorageErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
 	if err := eng.DeleteObject(r.Context(), resolved.Bucket, objectPath); err != nil {
+		h.logError(r, "object delete failed", "engine", resolved.Engine, "bucket", resolved.Bucket, "path", objectPath, "error", err.Error())
 		writeStorageErr(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
+	h.logStorage(r, "delete", resolved.Engine, resolved.Bucket, objectPath, "display_id", resolved.DisplayID)
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -197,7 +219,7 @@ type deleteManyReq struct {
 
 func (h *Handler) deleteManyObjects(w http.ResponseWriter, r *http.Request) {
 	bucketID := chi.URLParam(r, "bucketName")
-	resolved, eng, err := h.registry.Resolve(bucketID)
+	resolved, eng, err := h.registry.Resolve(r.Context(), bucketID)
 	if err != nil {
 		writeStorageErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
@@ -208,9 +230,11 @@ func (h *Handler) deleteManyObjects(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := eng.DeleteObjects(r.Context(), resolved.Bucket, req.Prefixes); err != nil {
+		h.logError(r, "objects delete failed", "engine", resolved.Engine, "bucket", resolved.Bucket, "count", len(req.Prefixes), "error", err.Error())
 		writeStorageErr(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
+	h.logInfo(r, "objects deleted", "engine", resolved.Engine, "bucket", resolved.Bucket, "display_id", resolved.DisplayID, "count", len(req.Prefixes))
 	out := make([]model.FileObject, 0, len(req.Prefixes))
 	for _, p := range req.Prefixes {
 		out = append(out, model.FileObject{Name: p})
@@ -222,15 +246,12 @@ type listReq struct {
 	Prefix string `json:"prefix"`
 	Limit  int    `json:"limit"`
 	Offset int    `json:"offset"`
-	SortBy *struct {
-		Column string `json:"column"`
-		Order  string `json:"order"`
-	} `json:"sortBy"`
+	SortBy *sortBySpec `json:"sortBy"`
 }
 
 func (h *Handler) listObjects(w http.ResponseWriter, r *http.Request) {
 	bucketID := chi.URLParam(r, "bucketName")
-	resolved, eng, err := h.registry.Resolve(bucketID)
+	resolved, eng, err := h.registry.Resolve(r.Context(), bucketID)
 	if err != nil {
 		writeStorageErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
@@ -245,18 +266,17 @@ func (h *Handler) listObjects(w http.ResponseWriter, r *http.Request) {
 	}
 	objs, err := eng.ListObjects(r.Context(), resolved.Bucket, req.Prefix, req.Limit, req.Offset)
 	if err != nil {
+		h.logError(r, "object list failed", "engine", resolved.Engine, "bucket", resolved.Bucket, "error", err.Error())
 		writeStorageErr(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
+	h.logOp(r, slog.LevelDebug, "objects listed", "engine", resolved.Engine, "bucket", resolved.Bucket, "prefix", req.Prefix, "count", len(objs))
 	out := make([]model.FileObject, 0, len(objs))
 	for _, o := range objs {
 		out = append(out, toFileObject(resolved, o))
 	}
+	sortFileObjects(out, req.SortBy)
 	writeJSON(w, http.StatusOK, out)
-}
-
-func (h *Handler) listObjectsV2(w http.ResponseWriter, r *http.Request) {
-	h.listObjects(w, r)
 }
 
 type moveCopyReq struct {
@@ -272,7 +292,7 @@ func (h *Handler) moveObject(w http.ResponseWriter, r *http.Request) {
 		writeStorageErr(w, http.StatusBadRequest, "invalid_request", "invalid json")
 		return
 	}
-	src, srcEng, err := h.registry.Resolve(req.BucketID)
+	src, srcEng, err := h.registry.Resolve(r.Context(), req.BucketID)
 	if err != nil {
 		writeStorageErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
@@ -281,20 +301,27 @@ func (h *Handler) moveObject(w http.ResponseWriter, r *http.Request) {
 	if dstRef == "" {
 		dstRef = req.BucketID
 	}
-	dst, dstEng, err := h.registry.Resolve(dstRef)
+	dst, dstEng, err := h.registry.Resolve(r.Context(), dstRef)
 	if err != nil {
 		writeStorageErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	if src.Engine != dst.Engine || srcEng != dstEng {
-		writeStorageErr(w, http.StatusBadRequest, "invalid_request", "cross-engine move not supported")
-		return
-	}
-	if err := srcEng.CopyObject(r.Context(), src.Bucket, req.SourceKey, dst.Bucket, req.DestinationKey); err != nil {
+	if err := engine.TransferObject(r.Context(), srcEng, dstEng, src.Bucket, req.SourceKey, dst.Bucket, req.DestinationKey); err != nil {
 		writeStorageErr(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
-	_ = srcEng.DeleteObject(r.Context(), src.Bucket, req.SourceKey)
+	if err := srcEng.DeleteObject(r.Context(), src.Bucket, req.SourceKey); err != nil {
+		h.logError(r, "move delete source failed", "engine", src.Engine, "bucket", src.Bucket, "path", req.SourceKey, "error", err.Error())
+		writeStorageErr(w, http.StatusInternalServerError, "internal", err.Error())
+		return
+	}
+	h.logInfo(r, "object moved",
+		"engine", src.Engine,
+		"source_bucket", src.Bucket,
+		"dest_bucket", dst.Bucket,
+		"source_key", req.SourceKey,
+		"dest_key", req.DestinationKey,
+	)
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Successfully moved"})
 }
 
@@ -304,7 +331,7 @@ func (h *Handler) copyObject(w http.ResponseWriter, r *http.Request) {
 		writeStorageErr(w, http.StatusBadRequest, "invalid_request", "invalid json")
 		return
 	}
-	src, srcEng, err := h.registry.Resolve(req.BucketID)
+	src, srcEng, err := h.registry.Resolve(r.Context(), req.BucketID)
 	if err != nil {
 		writeStorageErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
@@ -313,19 +340,22 @@ func (h *Handler) copyObject(w http.ResponseWriter, r *http.Request) {
 	if dstRef == "" {
 		dstRef = req.BucketID
 	}
-	dst, dstEng, err := h.registry.Resolve(dstRef)
+	dst, dstEng, err := h.registry.Resolve(r.Context(), dstRef)
 	if err != nil {
 		writeStorageErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	if src.Engine != dst.Engine || srcEng != dstEng {
-		writeStorageErr(w, http.StatusBadRequest, "invalid_request", "cross-engine copy not supported")
-		return
-	}
-	if err := srcEng.CopyObject(r.Context(), src.Bucket, req.SourceKey, dst.Bucket, req.DestinationKey); err != nil {
+	if err := engine.TransferObject(r.Context(), srcEng, dstEng, src.Bucket, req.SourceKey, dst.Bucket, req.DestinationKey); err != nil {
 		writeStorageErr(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
+	h.logInfo(r, "object copied",
+		"engine", src.Engine,
+		"source_bucket", src.Bucket,
+		"dest_bucket", dst.Bucket,
+		"source_key", req.SourceKey,
+		"dest_key", req.DestinationKey,
+	)
 	writeJSON(w, http.StatusOK, map[string]string{"Key": req.DestinationKey})
 }
 
@@ -340,32 +370,23 @@ func (h *Handler) signObject(w http.ResponseWriter, r *http.Request) {
 
 	var req signReq
 	_ = json.NewDecoder(r.Body).Decode(&req)
-	expires := h.cfg.PresignExpires
-	if req.ExpiresIn > 0 {
-		expires = time.Duration(req.ExpiresIn) * time.Second
-	}
+	expires := h.presignExpires(req.ExpiresIn)
 
-	resolved, _, err := h.registry.Resolve(bucketID)
+	resolved, eng, err := h.registry.Resolve(r.Context(), bucketID)
 	if err != nil {
 		writeStorageErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
 
-	token, err := engine.IssueToken(h.cfg.SigningSecret, engine.SignClaims{
-		Engine: resolved.Engine,
-		Bucket: resolved.Bucket,
-		Path:   objectPath,
-		Op:     "download",
-		Exp:    time.Now().Add(expires).Unix(),
-	})
+	signedURL, err := h.issuePresignedGet(r, eng, resolved.Bucket, objectPath, expires)
 	if err != nil {
+		h.logError(r, "download presign failed", "engine", resolved.Engine, "bucket", resolved.Bucket, "path", objectPath, "error", err.Error())
 		writeStorageErr(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
 
-	signedPath := "/storage/v1/object/sign/" + resolved.DisplayID + "/" + escapeObjectPath(objectPath)
-	signedURL := signedPath + "?token=" + url.QueryEscape(token)
-	writeJSON(w, http.StatusOK, map[string]string{"signedURL": signedURL})
+	h.logPresignedURLIssued(r, "download", resolved.Engine, resolved.Bucket, objectPath, signedURL, expires)
+	writeJSON(w, http.StatusOK, map[string]string{"signedURL": signedURL, "path": objectPath})
 }
 
 func (h *Handler) signManyObjects(w http.ResponseWriter, r *http.Request) {
@@ -375,32 +396,24 @@ func (h *Handler) signManyObjects(w http.ResponseWriter, r *http.Request) {
 		writeStorageErr(w, http.StatusBadRequest, "invalid_request", "invalid json")
 		return
 	}
-	expires := h.cfg.PresignExpires
-	if req.ExpiresIn > 0 {
-		expires = time.Duration(req.ExpiresIn) * time.Second
-	}
-	resolved, _, err := h.registry.Resolve(bucketID)
+	expires := h.presignExpires(req.ExpiresIn)
+	resolved, eng, err := h.registry.Resolve(r.Context(), bucketID)
 	if err != nil {
 		writeStorageErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
 	out := make([]map[string]string, 0, len(req.Paths))
 	for _, p := range req.Paths {
-		token, err := engine.IssueToken(h.cfg.SigningSecret, engine.SignClaims{
-			Engine: resolved.Engine,
-			Bucket: resolved.Bucket,
-			Path:   p,
-			Op:     "download",
-			Exp:    time.Now().Add(expires).Unix(),
-		})
+		signedURL, err := eng.PresignGet(r.Context(), resolved.Bucket, p, expires, "")
 		if err != nil {
+			h.logError(r, "download presign failed", "engine", resolved.Engine, "bucket", resolved.Bucket, "path", p, "error", err.Error())
 			writeStorageErr(w, http.StatusInternalServerError, "internal", err.Error())
 			return
 		}
-		signedPath := "/storage/v1/object/sign/" + resolved.DisplayID + "/" + escapeObjectPath(p)
+		h.logPresignedURLIssued(r, "download", resolved.Engine, resolved.Bucket, p, signedURL, expires)
 		out = append(out, map[string]string{
 			"path":      p,
-			"signedURL": signedPath + "?token=" + url.QueryEscape(token),
+			"signedURL": signedURL,
 			"error":     "",
 		})
 	}
@@ -408,118 +421,63 @@ func (h *Handler) signManyObjects(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) getSignedObject(w http.ResponseWriter, r *http.Request) {
-	token := r.URL.Query().Get("token")
-	if token == "" {
+	if r.URL.Query().Get("token") == "" {
 		writeStorageErr(w, http.StatusBadRequest, "invalid_request", "token required")
 		return
 	}
-	claims, err := engine.VerifyToken(h.cfg.SigningSecret, token)
-	if err != nil {
-		writeStorageErr(w, http.StatusUnauthorized, "unauthorized", err.Error())
-		return
-	}
-	if claims.Op != "download" {
-		writeStorageErr(w, http.StatusBadRequest, "invalid_request", "invalid token op")
-		return
-	}
-	eng, err := h.registry.Engine(claims.Engine)
-	if err != nil {
-		writeStorageErr(w, http.StatusBadRequest, "invalid_request", err.Error())
-		return
-	}
-	body, info, err := eng.GetObject(r.Context(), claims.Bucket, claims.Path)
-	if err != nil {
-		if engineIsNotFound(err) {
-			writeStorageErr(w, http.StatusNotFound, "not_found", "object not found")
-			return
-		}
-		writeStorageErr(w, http.StatusInternalServerError, "internal", err.Error())
-		return
-	}
-	defer body.Close()
-	ct := info.ContentType
-	if ct == "" {
-		ct = "application/octet-stream"
-	}
-	w.Header().Set("Content-Type", ct)
-	if info.ETag != "" {
-		w.Header().Set("ETag", `"`+info.ETag+`"`)
-	}
-	if info.Size > 0 {
-		w.Header().Set("Content-Length", strconv.FormatInt(info.Size, 10))
-	}
-	w.WriteHeader(http.StatusOK)
-	_, _ = io.Copy(w, body)
+	h.logWarn(r, "deprecated legacy download sign token", "path", r.URL.Path)
+	writeStorageErr(w, http.StatusGone, "deprecated", "legacy download sign tokens are no longer supported; use S3 presigned URL from signObject")
 }
 
 func (h *Handler) signUpload(w http.ResponseWriter, r *http.Request) {
 	bucketID := chi.URLParam(r, "bucketName")
 	objectPath := strings.TrimPrefix(chi.URLParam(r, "*"), "/")
 
-	resolved, _, err := h.registry.Resolve(bucketID)
+	resolved, eng, err := h.registry.Resolve(r.Context(), bucketID)
 	if err != nil {
 		writeStorageErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
+	if !h.cfg.AllowPresignedUpload {
+		writeStorageErr(w, http.StatusForbidden, "access_denied", "presigned upload is disabled; use POST /object/{bucket}/{path}")
+		return
+	}
+
 	expires := h.cfg.PresignExpires
-	token, err := engine.IssueToken(h.cfg.SigningSecret, engine.SignClaims{
-		Engine: resolved.Engine,
-		Bucket: resolved.Bucket,
-		Path:   objectPath,
-		Op:     "upload",
-		Exp:    time.Now().Add(expires).Unix(),
-	})
+	contentType := r.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = r.URL.Query().Get("contentType")
+	}
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	if err := validateUploadPolicy(resolved, contentType, 0); err != nil {
+		writeStorageErr(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+
+	signedURL, err := eng.PresignPut(r.Context(), resolved.Bucket, objectPath, contentType, expires)
 	if err != nil {
+		h.logError(r, "upload presign failed", "engine", resolved.Engine, "bucket", resolved.Bucket, "path", objectPath, "error", err.Error())
 		writeStorageErr(w, http.StatusInternalServerError, "internal", err.Error())
 		return
 	}
-	path := "/storage/v1/object/upload/sign/" + resolved.DisplayID + "/" + escapeObjectPath(objectPath)
-	writeJSON(w, http.StatusOK, map[string]string{"url": path + "?token=" + url.QueryEscape(token)})
+
+	h.logPresignedURLIssued(r, "upload", resolved.Engine, resolved.Bucket, objectPath, signedURL, expires)
+	writeJSON(w, http.StatusOK, map[string]string{
+		"signedUrl": signedURL,
+		"url":       signedURL,
+		"path":      objectPath,
+	})
 }
 
 func (h *Handler) uploadSigned(w http.ResponseWriter, r *http.Request) {
-	token := r.URL.Query().Get("token")
-	if token == "" {
+	if r.URL.Query().Get("token") == "" {
 		writeStorageErr(w, http.StatusBadRequest, "invalid_request", "token required")
 		return
 	}
-	claims, err := engine.VerifyToken(h.cfg.SigningSecret, token)
-	if err != nil {
-		writeStorageErr(w, http.StatusUnauthorized, "unauthorized", err.Error())
-		return
-	}
-	if claims.Op != "upload" {
-		writeStorageErr(w, http.StatusBadRequest, "invalid_request", "invalid token op")
-		return
-	}
-	bucketID := engine.FormatBucketID(h.registry.DefaultEngine(), claims.Engine, claims.Bucket)
-	eng, err := h.registry.Engine(claims.Engine)
-	if err != nil {
-		writeStorageErr(w, http.StatusBadRequest, "invalid_request", err.Error())
-		return
-	}
-
-	body, contentType, _, metadata, err := readUploadBody(r)
-	if err != nil {
-		writeStorageErr(w, http.StatusBadRequest, "invalid_request", err.Error())
-		return
-	}
-	defer body.Close()
-
-	if !upsertHeader(r) {
-		if _, err := eng.HeadObject(r.Context(), claims.Bucket, claims.Path); err == nil {
-			writeStorageErr(w, http.StatusConflict, "Duplicate", "The resource already exists")
-			return
-		}
-	}
-	if err := eng.PutObject(r.Context(), claims.Bucket, claims.Path, contentType, body, metadata); err != nil {
-		writeStorageErr(w, http.StatusInternalServerError, "internal", err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]string{
-		"Key": bucketID + "/" + claims.Path,
-		"path": claims.Path,
-	})
+	h.logWarn(r, "deprecated legacy upload sign token", "path", r.URL.Path)
+	writeStorageErr(w, http.StatusGone, "deprecated", "legacy upload sign tokens are no longer supported; use S3 presigned PUT URL from signUpload")
 }
 
 func toFileObject(resolved engine.ResolvedBucket, info engine.ObjectInfo) model.FileObject {
@@ -575,8 +533,12 @@ func readMultipartUpload(r *http.Request) (io.ReadCloser, string, string, map[st
 		}
 		name := part.FormName()
 		switch name {
-		case "":
-			filePart = part
+		case "", "file":
+			if filePart == nil {
+				filePart = part
+			} else {
+				part.Close()
+			}
 		case "cacheControl":
 			b, _ := io.ReadAll(part)
 			cacheControl = string(b)
@@ -597,12 +559,4 @@ func readMultipartUpload(r *http.Request) (io.ReadCloser, string, string, map[st
 		contentType = "application/octet-stream"
 	}
 	return filePart, contentType, cacheControl, metadata, nil
-}
-
-func escapeObjectPath(p string) string {
-	parts := strings.Split(p, "/")
-	for i, part := range parts {
-		parts[i] = url.PathEscape(part)
-	}
-	return strings.Join(parts, "/")
 }

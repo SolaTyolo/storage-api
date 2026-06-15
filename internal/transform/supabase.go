@@ -46,9 +46,6 @@ func ParseSupabaseTransform(q url.Values, maxEdge int) (Params, error) {
 // ImgproxyURL generates an imgproxy processing URL for a physical S3 bucket/key.
 func ImgproxyURL(cfg appconfig.Config, physicalBucket, objectKey string, p Params) (string, error) {
 	base := strings.TrimRight(cfg.ImgproxyBaseURL, "/")
-	if !cfg.ImgproxyInsecure {
-		return "", fmt.Errorf("signed imgproxy URLs not implemented; set IMGPROXY_INSECURE=true for dev")
-	}
 
 	opts := imgproxyProcessing(p)
 	if p.Quality > 0 && p.Quality != 85 {
@@ -64,5 +61,15 @@ func ImgproxyURL(cfg appconfig.Config, physicalBucket, objectKey string, p Param
 	}
 
 	src := fmt.Sprintf("s3://%s/%s", physicalBucket, objectKey)
-	return fmt.Sprintf("%s/insecure/%s/%s", base, opts, encodeBase64RawURL(src)), nil
+	encoded := encodeBase64RawURL(src)
+	path := fmt.Sprintf("/%s/plain/%s", opts, encoded)
+
+	if cfg.ImgproxyInsecure {
+		return base + "/insecure" + path, nil
+	}
+	if cfg.ImgproxyKey == "" || cfg.ImgproxySalt == "" {
+		return "", fmt.Errorf("IMGPROXY_KEY and IMGPROXY_SALT are required when IMGPROXY_INSECURE=false")
+	}
+	sig := signImgproxyPath(cfg.ImgproxyKey, cfg.ImgproxySalt, path)
+	return base + "/" + sig + path, nil
 }

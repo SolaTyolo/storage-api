@@ -14,12 +14,14 @@ import (
 // PopplerWorker calls the Poppler preview sidecar (poppler-utils + thin HTTP wrapper).
 type PopplerWorker struct {
 	baseURL    string
+	apiToken   string
 	httpClient *http.Client
 }
 
-func NewPopplerWorker(baseURL string) *PopplerWorker {
+func NewPopplerWorker(baseURL, apiToken string) *PopplerWorker {
 	return &PopplerWorker{
 		baseURL:    strings.TrimRight(baseURL, "/"),
+		apiToken:   apiToken,
 		httpClient: &http.Client{Timeout: 60 * time.Second},
 	}
 }
@@ -53,6 +55,9 @@ func (p *PopplerWorker) PDFToJPEG(ctx context.Context, pdf []byte, page, dpi int
 		return nil, err
 	}
 	req.Header.Set("Content-Type", w.FormDataContentType())
+	if p.apiToken != "" {
+		req.Header.Set("Authorization", "Bearer "+p.apiToken)
+	}
 
 	res, err := p.httpClient.Do(req)
 	if err != nil {

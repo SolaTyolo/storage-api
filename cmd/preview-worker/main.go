@@ -10,17 +10,42 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 )
 
 func main() {
 	addr := getenv("HTTP_ADDR", ":8090")
-	http.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
+	token := os.Getenv("SIDECAR_API_TOKEN")
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
-	http.HandleFunc("/v1/render", handleRender)
+	mux.Handle("/v1/render", requireBearer(token, http.HandlerFunc(handleRender)))
 	log.Printf("preview-worker (poppler) listening on %s", addr)
-	log.Fatal(http.ListenAndServe(addr, nil))
+	log.Fatal(http.ListenAndServe(addr, mux))
+}
+
+func requireBearer(token string, next http.Handler) http.Handler {
+	if token == "" {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got := bearerToken(r)
+		if got == "" || got != token {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func bearerToken(r *http.Request) string {
+	auth := r.Header.Get("Authorization")
+	if strings.HasPrefix(auth, "Bearer ") {
+		return strings.TrimSpace(strings.TrimPrefix(auth, "Bearer "))
+	}
+	return ""
 }
 
 func handleRender(w http.ResponseWriter, r *http.Request) {

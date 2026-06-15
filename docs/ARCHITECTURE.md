@@ -44,8 +44,17 @@ engines:
 
 - `STORAGE_CONFIG_PATH` — path to YAML file
 - `STORAGE_DEFAULT_ENGINE` — optional override for `default_engine`
+- `API_KEY` / `API_KEYS` — when set, protects `/storage/v1` via `apikey` or `Authorization: Bearer`
+- `JWT_SECRET` — validates Supabase-style HS256 JWT in `Authorization: Bearer`
+- `AUTHZ_HTTP_URL` — external HTTP policy service ([AUTHZ.md](./AUTHZ.md))
+- `AUTH_DOWNLOAD_MODE` — `redirect` issues presigned GET for authenticated downloads
+- `PREVIEW_ASYNC` — PDF/Office render returns `202` + `GET /render/job/{id}`
+- `SIDECAR_API_TOKEN` — Bearer for Gotenberg and preview-worker
+- `GET /metrics` — Prometheus metrics
 
-Bucket metadata (`public`, `file_size_limit`, `allowed_mime_types`) is stored as `.__storage/bucket.json` inside each physical bucket.
+Signed URLs return **direct S3 presigned URLs** (not API-hosted). Public `GET` returns **302** to a short-lived presigned URL.
+
+Bucket metadata (`public`, `file_size_limit`, `allowed_mime_types`) is stored as `.__storage/bucket.json` inside each physical bucket. Updates support optimistic concurrency via S3 `If-Match` / `ETag` (HTTP 412 on conflict).
 
 ## API surface (Supabase Storage)
 
@@ -71,6 +80,7 @@ Base path: `/storage/v1`
 | GET | `/object/{bucket}/{path}` | `download()` |
 | GET | `/object/public/{bucket}/{path}` | `getPublicUrl()` |
 | POST | `/object/list/{bucket}` | `list()` |
+| POST | `/object/list-v2/{bucket}` | `listV2()` — cursor pagination (`hasNext`, `nextCursor`) |
 | DELETE | `/object/{bucket}` | `remove()` (body: `{prefixes:[]}`) |
 | POST | `/object/copy` | `copy()` |
 | POST | `/object/move` | `move()` |

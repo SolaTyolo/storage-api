@@ -27,6 +27,14 @@ func NewRegistry(defaultEngine string, engines map[string]Engine) (*Registry, er
 
 func (r *Registry) DefaultEngine() string { return r.defaultEngine }
 
+func (r *Registry) EngineNames() []string {
+	names := make([]string, 0, len(r.engines))
+	for name := range r.engines {
+		names = append(names, name)
+	}
+	return names
+}
+
 func (r *Registry) Engine(name string) (Engine, error) {
 	eng, ok := r.engines[name]
 	if !ok {
@@ -35,7 +43,7 @@ func (r *Registry) Engine(name string) (Engine, error) {
 	return eng, nil
 }
 
-func (r *Registry) Resolve(bucketRef string) (ResolvedBucket, Engine, error) {
+func (r *Registry) Resolve(ctx context.Context, bucketRef string) (ResolvedBucket, Engine, error) {
 	engineName, bucketName := ParseBucketRef(r.defaultEngine, bucketRef)
 	if bucketName == "" {
 		return ResolvedBucket{}, nil, fmt.Errorf("bucket name is required")
@@ -44,8 +52,8 @@ func (r *Registry) Resolve(bucketRef string) (ResolvedBucket, Engine, error) {
 	if err != nil {
 		return ResolvedBucket{}, nil, err
 	}
-	meta, err := eng.GetBucketMeta(context.Background(), bucketName)
-	if err != nil && !isNotFound(err) {
+	meta, _, err := eng.GetBucketMeta(ctx, bucketName)
+	if err != nil {
 		return ResolvedBucket{}, nil, err
 	}
 	return ResolvedBucket{
@@ -69,7 +77,7 @@ func (r *Registry) ListAllBuckets(ctx context.Context) ([]ResolvedBucket, error)
 			if strings.HasPrefix(b, ".__") {
 				continue
 			}
-			meta, _ := eng.GetBucketMeta(ctx, b)
+			meta, _, _ := eng.GetBucketMeta(ctx, b)
 			out = append(out, ResolvedBucket{
 				Engine:           name,
 				Bucket:           b,

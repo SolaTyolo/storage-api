@@ -32,10 +32,12 @@ docker compose -f deploy/docker-compose.yml up -d --build
 
 | Endpoint | URL |
 |----------|-----|
-| API / Playground | http://localhost:8080/playground/ |
+| API | http://localhost:8080 |
 | Health | http://localhost:8080/health |
 
 Config: `config/storage.yaml` (local), `deploy/storage.docker.yaml` (Docker).
+
+Set `API_KEY` to protect `/storage/v1`. Clients use Supabase-style `apikey` or `Authorization: Bearer` headers. Exempt: `/health`, public object/render paths, signed URLs with `?token=`.
 
 ## Repository layout
 

@@ -16,12 +16,14 @@ import (
 // Gotenberg document conversion client — https://github.com/gotenberg/gotenberg (MIT)
 type Gotenberg struct {
 	baseURL    string
+	apiToken   string
 	httpClient *http.Client
 }
 
-func NewGotenberg(baseURL string) *Gotenberg {
+func NewGotenberg(baseURL, apiToken string) *Gotenberg {
 	return &Gotenberg{
-		baseURL: strings.TrimRight(baseURL, "/"),
+		baseURL:    strings.TrimRight(baseURL, "/"),
+		apiToken:   apiToken,
 		httpClient: &http.Client{Timeout: 120 * time.Second},
 	}
 }
@@ -46,6 +48,9 @@ func (g *Gotenberg) ToPDF(ctx context.Context, filename string, body io.Reader) 
 		return nil, err
 	}
 	req.Header.Set("Content-Type", w.FormDataContentType())
+	if g.apiToken != "" {
+		req.Header.Set("Authorization", "Bearer "+g.apiToken)
+	}
 
 	res, err := g.httpClient.Do(req)
 	if err != nil {

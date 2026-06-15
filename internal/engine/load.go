@@ -13,6 +13,7 @@ func LoadRegistry(storage appconfig.StorageYAML) (*Registry, error) {
 		case "s3", "":
 			eng, err := NewS3Engine(name, S3Config{
 				Endpoint:        spec.Endpoint,
+				PublicEndpoint:  spec.PublicEndpoint,
 				Region:          spec.Region,
 				AccessKeyID:     spec.AccessKeyID,
 				SecretAccessKey: spec.SecretAccessKey,

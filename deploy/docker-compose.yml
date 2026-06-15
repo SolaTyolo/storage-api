@@ -32,9 +32,12 @@ services:
     image: ccr.ccs.tencentyun.com/solat/gotenberg:8
     ports:
       - "3000:3000"
+    environment:
+      GOTENBERG_API_KEY: dev-sidecar-token
     command:
       - gotenberg
       - --api-port=3000
+      - --api-key=dev-sidecar-token
 
   preview-worker:
     build:
@@ -42,6 +45,8 @@ services:
       dockerfile: deploy/preview-worker/Dockerfile
     ports:
       - "8090:8090"
+    environment:
+      SIDECAR_API_TOKEN: dev-sidecar-token
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:8090/health"]
       interval: 5s
@@ -59,12 +64,17 @@ services:
       STORAGE_CONFIG_PATH: /etc/storage-api/storage.yaml
       STORAGE_DEFAULT_ENGINE: rustfs
       FFMPEG_PATH: /usr/bin/ffmpeg
-      UPLOAD_SIGNING_SECRET: dev-upload-secret-change-me
+      API_KEY: dev-api-key-change-me
+      LOG_LEVEL: info
+      LOG_FORMAT: text
+      PRESIGN_EXPIRES_SEC: "3600"
+      PUBLIC_PRESIGN_EXPIRES_SEC: "900"
       TRANSFORM_BACKEND: imgproxy
       IMGPROXY_BASE_URL: http://imgproxy:8080
       IMGPROXY_INSECURE: "true"
       GOTENBERG_URL: http://gotenberg:3000
       POPPLER_WORKER_URL: http://preview-worker:8090
+      SIDECAR_API_TOKEN: dev-sidecar-token
     volumes:
       - ./storage.docker.yaml:/etc/storage-api/storage.yaml:ro
     depends_on:
@@ -92,6 +102,7 @@ services:
         sleep 3
         curl -sf -X POST http://api:8080/storage/v1/bucket \
           -H 'Content-Type: application/json' \
+          -H 'apikey: dev-api-key-change-me' \
           -d '{"id":"uploads","name":"uploads","public":true}' || true
         echo "bucket uploads ready"
 

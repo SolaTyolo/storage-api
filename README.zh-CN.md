@@ -14,7 +14,6 @@
 docker compose -f deploy/docker-compose.yml up -d --build
 ```
 
-- Playground: http://localhost:8080/playground/
 - 变换示例: `GET /storage/v1/render/image/public/uploads/photo.png?width=320&height=200&resize=cover`
 
 ```bash
@@ -44,7 +43,15 @@ engines:
 |------|------|
 | `STORAGE_CONFIG_PATH` | YAML 配置文件路径 |
 | `STORAGE_DEFAULT_ENGINE` | 覆盖默认引擎 |
-| `UPLOAD_SIGNING_SECRET` | 签名 URL token 的 HMAC 密钥 |
+| `API_KEY` | 服务端 API 密钥；设置后 `/storage/v1` 需携带 |
+| `API_KEYS` | 逗号分隔多密钥 |
+| `JWT_SECRET` | Supabase HS256 JWT 密钥；支持 `Authorization: Bearer <jwt>` |
+| `ALLOW_PRESIGNED_UPLOAD` | `false` 禁用 S3 presigned 上传 |
+| `AUTH_DOWNLOAD_MODE` | `proxy` 或 `redirect` |
+| `IMGPROXY_KEY` / `IMGPROXY_SALT` | 生产 imgproxy 签名（`IMGPROXY_INSECURE=false` 时必填） |
+| `AUTHZ_HTTP_URL` | 外部 HTTP 授权服务（见 [docs/AUTHZ.md](./docs/AUTHZ.md)） |
+| `PREVIEW_ASYNC` | PDF/Office 异步预览 |
+| `SIDECAR_API_TOKEN` | Gotenberg / preview-worker Bearer 鉴权 |
 
 ## Supabase SDK 用法
 
@@ -69,7 +76,7 @@ config/storage.yaml    # 本地 / 非 Docker 存储配置
 deploy/                # Docker Compose、Dockerfile、容器配置
 ```
 
-详见 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)、[docs/TRANSFORM_BACKENDS.md](./docs/TRANSFORM_BACKENDS.md)。
+详见 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)、[docs/TRANSFORM_BACKENDS.md](./docs/TRANSFORM_BACKENDS.md)、[docs/ANALYSIS.zh-CN.md](./docs/ANALYSIS.zh-CN.md)。
 
 ## 许可证
 

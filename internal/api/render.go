@@ -24,7 +24,7 @@ func (h *Handler) renderImageInternal(w http.ResponseWriter, r *http.Request, re
 	bucketID := chi.URLParam(r, "bucketName")
 	objectPath := strings.TrimPrefix(chi.URLParam(r, "*"), "/")
 
-	resolved, eng, err := h.registry.Resolve(bucketID)
+	resolved, eng, err := h.registry.Resolve(r.Context(), bucketID)
 	if err != nil {
 		writeStorageErr(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
@@ -52,13 +52,23 @@ func (h *Handler) renderImageInternal(w http.ResponseWriter, r *http.Request, re
 
 	contentType := info.ContentType
 	kind := mime.Classify(contentType)
+	h.logInfo(r, "render",
+		"engine", resolved.Engine,
+		"bucket", resolved.Bucket,
+		"path", objectPath,
+		"kind", kind,
+		"public", requirePublic,
+		"backend", h.cfg.TransformBackend,
+	)
 
 	if h.cfg.TransformBackend == "imgproxy" && kind == mime.KindImage {
 		proxyURL, err := transform.ImgproxyURL(h.cfg, resolved.Bucket, objectPath, params)
 		if err != nil {
+			h.logError(r, "imgproxy URL build failed", "error", err.Error())
 			writeStorageErr(w, http.StatusInternalServerError, "internal", err.Error())
 			return
 		}
+		h.logInfo(r, "render redirect to imgproxy", "url", proxyURL)
 		http.Redirect(w, r, proxyURL, http.StatusFound)
 		return
 	}
@@ -84,6 +94,10 @@ func (h *Handler) renderImageInternal(w http.ResponseWriter, r *http.Request, re
 		if dpi <= 0 {
 			dpi = 150
 		}
+		if h.cfg.PreviewAsync && h.jobs != nil {
+			h.startAsyncRasterize(w, r, obj, page, dpi, params)
+			return
+		}
 		jpeg, rerr := h.preview.Rasterize(r.Context(), obj, page, dpi)
 		if errors.Is(rerr, preview.ErrNotSupported) {
 			writeStorageErr(w, http.StatusUnsupportedMediaType, "not_supported", rerr.Error())
@@ -103,9 +117,12 @@ func (h *Handler) renderImageInternal(w http.ResponseWriter, r *http.Request, re
 		return
 	}
 	if renderErr != nil {
+		h.logError(r, "render failed", "engine", resolved.Engine, "bucket", resolved.Bucket, "path", objectPath, "error", renderErr.Error())
 		writeStorageErr(w, http.StatusInternalServerError, "internal", renderErr.Error())
 		return
 	}
+
+	h.logInfo(r, "render complete", "engine", resolved.Engine, "bucket", resolved.Bucket, "path", objectPath, "content_type", outCT, "bytes", len(body))
 
 	w.Header().Set("Content-Type", outCT)
 	w.Header().Set("Cache-Control", "public, max-age=86400")

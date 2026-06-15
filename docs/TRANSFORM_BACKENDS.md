@@ -47,13 +47,13 @@ Supabase SDK query params (`width`, `height`, `resize`, `format`, `quality`) are
 docker compose -f deploy/docker-compose.yml up -d --build
 ```
 
-- Playground: http://localhost:8080/playground/
+- API: http://localhost:8080
 - imgproxy: http://localhost:8081
 - Gotenberg: http://localhost:3000/health
 
 ## Production notes
 
-1. **imgproxy**: disable `/insecure/`; set `IMGPROXY_KEY` / `IMGPROXY_SALT` and issue short-lived signed URLs from the API.
+1. **imgproxy**: set matching `IMGPROXY_KEY` / `IMGPROXY_SALT` on imgproxy and the API; set `IMGPROXY_INSECURE=false` — the API issues HMAC-signed URLs automatically.
 2. **Gotenberg / preview-worker**: internal network only; do not expose to the public internet.
 3. **API**: enforce bucket policy / JWT before serving `/render/image/...`.
 

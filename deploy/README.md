@@ -27,7 +27,7 @@ docker compose up -d --build
 
 ## Endpoints
 
-- API / Playground: http://localhost:8080/playground/
+- API: http://localhost:8080
 - RustFS S3: http://localhost:9000
 - imgproxy: http://localhost:8081
 - Gotenberg: http://localhost:3000

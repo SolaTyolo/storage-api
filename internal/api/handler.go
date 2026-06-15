@@ -1,11 +1,13 @@
 package api
 
 import (
+	"log/slog"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
+	"github.com/SolaTyolo/storage-api/internal/authz"
 	"github.com/SolaTyolo/storage-api/internal/config"
 	"github.com/SolaTyolo/storage-api/internal/engine"
 	"github.com/SolaTyolo/storage-api/internal/preview"
@@ -17,30 +19,44 @@ type Handler struct {
 	registry  *engine.Registry
 	transform *transform.Service
 	preview   *preview.Service
+	authz     authz.Authorizer
+	jobs      *preview.JobStore
+	log       *slog.Logger
 }
 
-func NewRouter(cfg config.Config, registry *engine.Registry, tf *transform.Service, prev *preview.Service) http.Handler {
-	h := &Handler{cfg: cfg, registry: registry, transform: tf, preview: prev}
+func NewRouter(cfg config.Config, registry *engine.Registry, tf *transform.Service, prev *preview.Service, log *slog.Logger) http.Handler {
+	var jobs *preview.JobStore
+	if cfg.PreviewAsync {
+		jobs = preview.NewJobStore(cfg.PreviewJobTTL)
+	}
+	h := &Handler{
+		cfg:       cfg,
+		registry:  registry,
+		transform: tf,
+		preview:   prev,
+		authz:     authz.NewFromConfig(cfg.AuthzHTTPURL, cfg.AuthzHTTPTimeoutSec),
+		jobs:      jobs,
+		log:       log,
+	}
 
 	r := chi.NewRouter()
-	r.Use(middleware.RequestID, middleware.RealIP, middleware.Logger, middleware.Recoverer)
+	r.Use(middleware.RequestID, middleware.RealIP, metricsMiddleware, accessLogger(log), middleware.Recoverer)
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   []string{"*"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"},
-		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "apikey", "x-upsert", "x-client-info", "cache-control", "x-metadata"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "apikey", "x-api-key", "x-upsert", "x-client-info", "cache-control", "x-metadata"},
 		AllowCredentials: false,
 		MaxAge:           300,
 	}))
 
 	r.Get("/health", h.health)
 	r.Head("/health", h.health)
-
-	r.Get("/playground", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/playground/", http.StatusFound)
-	})
-	r.Handle("/playground/*", playgroundHandler())
+	r.Handle("/metrics", metricsHandler())
 
 	r.Route("/storage/v1", func(r chi.Router) {
+		r.Use(h.requireAPIKey)
+		r.Use(h.requireAuthz)
+
 		// Supabase bucket API
 		r.Post("/bucket", h.createBucket)
 		r.Get("/bucket", h.listBuckets)
@@ -70,7 +86,7 @@ func NewRouter(cfg config.Config, registry *engine.Registry, tf *transform.Servi
 		r.Head("/object/info/{bucketName}/*", h.headObject)
 
 		r.Get("/object/public/{bucketName}/*", h.getPublicObject)
-		r.Head("/object/public/{bucketName}/*", h.headObject)
+		r.Head("/object/public/{bucketName}/*", h.headPublicObject)
 
 		r.Get("/object/authenticated/{bucketName}/*", h.getObject)
 		r.Head("/object/authenticated/{bucketName}/*", h.headObject)
@@ -86,6 +102,9 @@ func NewRouter(cfg config.Config, registry *engine.Registry, tf *transform.Servi
 		r.Head("/render/image/public/{bucketName}/*", h.renderPublicImage)
 		r.Get("/render/image/authenticated/{bucketName}/*", h.renderImage)
 		r.Head("/render/image/authenticated/{bucketName}/*", h.renderImage)
+
+		r.Get("/render/job/{jobId}", h.getRenderJob)
+		r.Head("/render/job/{jobId}", h.getRenderJob)
 	})
 
 	return r
@@ -93,6 +112,7 @@ func NewRouter(cfg config.Config, registry *engine.Registry, tf *transform.Servi
 
 func (h *Handler) health(w http.ResponseWriter, r *http.Request) {
 	if err := h.registry.Ping(r.Context()); err != nil {
+		h.logWarn(r, "health check degraded", "error", err.Error())
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "degraded", "storage": err.Error()})
 		return
 	}

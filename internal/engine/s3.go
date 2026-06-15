@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"strings"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 
 type S3Config struct {
 	Endpoint        string
+	PublicEndpoint  string
 	Region          string
 	AccessKeyID     string
 	SecretAccessKey string
@@ -27,8 +29,9 @@ type S3Config struct {
 }
 
 type S3Engine struct {
-	name   string
-	client *s3.Client
+	name           string
+	client         *s3.Client
+	publicEndpoint string
 }
 
 func NewS3Engine(name string, cfg S3Config) (*S3Engine, error) {
@@ -47,7 +50,7 @@ func NewS3Engine(name string, cfg S3Config) (*S3Engine, error) {
 		o.BaseEndpoint = aws.String(cfg.Endpoint)
 		o.UsePathStyle = cfg.PathStyle
 	})
-	return &S3Engine{name: name, client: client}, nil
+	return &S3Engine{name: name, client: client, publicEndpoint: cfg.PublicEndpoint}, nil
 }
 
 func (e *S3Engine) Name() string { return e.name }
@@ -65,7 +68,7 @@ func (e *S3Engine) CreateBucket(ctx context.Context, name string, meta BucketMet
 			return err
 		}
 	}
-	return e.SetBucketMeta(ctx, name, meta)
+	return e.SetBucketMeta(ctx, name, meta, "")
 }
 
 func (e *S3Engine) DeleteBucket(ctx context.Context, name string) error {
@@ -92,33 +95,45 @@ func (e *S3Engine) HeadBucket(ctx context.Context, name string) error {
 	return err
 }
 
-func (e *S3Engine) GetBucketMeta(ctx context.Context, name string) (BucketMeta, error) {
+func (e *S3Engine) GetBucketMeta(ctx context.Context, name string) (BucketMeta, string, error) {
 	info, err := e.HeadObject(ctx, name, bucketMetaKey)
 	if err != nil {
 		if isNotFound(err) {
-			return BucketMeta{}, nil
+			return BucketMeta{}, "", nil
 		}
-		return BucketMeta{}, err
+		return BucketMeta{}, "", err
 	}
 	rc, _, err := e.GetObject(ctx, name, bucketMetaKey)
 	if err != nil {
-		return BucketMeta{}, err
+		return BucketMeta{}, "", err
 	}
 	defer rc.Close()
 	var meta BucketMeta
 	if err := json.NewDecoder(rc).Decode(&meta); err != nil {
-		return BucketMeta{}, err
+		return BucketMeta{}, "", err
 	}
-	_ = info
-	return meta, nil
+	return meta, info.ETag, nil
 }
 
-func (e *S3Engine) SetBucketMeta(ctx context.Context, name string, meta BucketMeta) error {
+func (e *S3Engine) SetBucketMeta(ctx context.Context, name string, meta BucketMeta, ifMatch string) error {
 	b, err := json.Marshal(meta)
 	if err != nil {
 		return err
 	}
-	return e.PutObject(ctx, name, bucketMetaKey, "application/json", bytes.NewReader(b), nil)
+	in := &s3.PutObjectInput{
+		Bucket:      aws.String(name),
+		Key:         aws.String(bucketMetaKey),
+		Body:        bytes.NewReader(b),
+		ContentType: aws.String("application/json"),
+	}
+	if ifMatch != "" {
+		in.IfMatch = aws.String(ifMatch)
+	}
+	_, err = e.client.PutObject(ctx, in)
+	if err != nil && isPreconditionFailed(err) {
+		return ErrPreconditionFailed
+	}
+	return err
 }
 
 func (e *S3Engine) EmptyBucket(ctx context.Context, name string) error {
@@ -136,9 +151,10 @@ func (e *S3Engine) EmptyBucket(ctx context.Context, name string) error {
 		}
 		var keys []types.ObjectIdentifier
 		for _, obj := range out.Contents {
-			if obj.Key != nil {
-				keys = append(keys, types.ObjectIdentifier{Key: obj.Key})
+			if obj.Key == nil || *obj.Key == bucketMetaKey {
+				continue
 			}
+			keys = append(keys, types.ObjectIdentifier{Key: obj.Key})
 		}
 		if len(keys) == 0 {
 			return nil
@@ -157,12 +173,17 @@ func (e *S3Engine) EmptyBucket(ctx context.Context, name string) error {
 	}
 }
 
-func (e *S3Engine) PutObject(ctx context.Context, bucket, key, contentType string, body io.Reader, metadata map[string]string) error {
+func (e *S3Engine) PutObject(ctx context.Context, bucket, key, contentType, cacheControl string, body io.Reader, metadata map[string]string) error {
 	in := &s3.PutObjectInput{
-		Bucket:      aws.String(bucket),
-		Key:         aws.String(key),
-		Body:        body,
-		ContentType: aws.String(contentType),
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+		Body:   body,
+	}
+	if contentType != "" {
+		in.ContentType = aws.String(contentType)
+	}
+	if cacheControl != "" {
+		in.CacheControl = aws.String(cacheControl)
 	}
 	if len(metadata) > 0 {
 		in.Metadata = metadata
@@ -264,6 +285,65 @@ func (e *S3Engine) ListObjects(ctx context.Context, bucket, prefix string, limit
 	return results, nil
 }
 
+func (e *S3Engine) ListObjectsV2(ctx context.Context, bucket, prefix string, limit int, cursor string, withDelimiter bool) (ListPageV2, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	cont, err := decodeListCursor(cursor)
+	if err != nil {
+		return ListPageV2{}, err
+	}
+	var token *string
+	if cont != "" {
+		token = &cont
+	}
+
+	input := &s3.ListObjectsV2Input{
+		Bucket:            aws.String(bucket),
+		Prefix:            aws.String(prefix),
+		MaxKeys:           aws.Int32(int32(limit)),
+		ContinuationToken: token,
+	}
+	if withDelimiter {
+		input.Delimiter = aws.String("/")
+	}
+
+	out, err := e.client.ListObjectsV2(ctx, input)
+	if err != nil {
+		return ListPageV2{}, err
+	}
+
+	page := ListPageV2{HasMore: aws.ToBool(out.IsTruncated)}
+	if out.NextContinuationToken != nil {
+		page.NextCursor = encodeListCursor(*out.NextContinuationToken)
+	}
+
+	for _, obj := range out.Contents {
+		if obj.Key == nil || *obj.Key == bucketMetaKey || strings.HasPrefix(*obj.Key, ".__storage/") {
+			continue
+		}
+		info := ObjectInfo{Path: *obj.Key}
+		if obj.Size != nil {
+			info.Size = *obj.Size
+		}
+		if obj.ETag != nil {
+			info.ETag = strings.Trim(*obj.ETag, `"`)
+		}
+		if obj.LastModified != nil {
+			info.LastModified = *obj.LastModified
+		}
+		page.Objects = append(page.Objects, info)
+	}
+
+	for _, cp := range out.CommonPrefixes {
+		if cp.Prefix != nil {
+			page.Folders = append(page.Folders, *cp.Prefix)
+		}
+	}
+
+	return page, nil
+}
+
 func (e *S3Engine) CopyObject(ctx context.Context, srcBucket, srcKey, dstBucket, dstKey string) error {
 	src := fmt.Sprintf("%s/%s", srcBucket, srcKey)
 	_, err := e.client.CopyObject(ctx, &s3.CopyObjectInput{
@@ -274,29 +354,53 @@ func (e *S3Engine) CopyObject(ctx context.Context, srcBucket, srcKey, dstBucket,
 	return err
 }
 
-func (e *S3Engine) PresignGet(ctx context.Context, bucket, key string, expires time.Duration) (string, error) {
+func (e *S3Engine) PresignGet(ctx context.Context, bucket, key string, expires time.Duration, downloadFilename string) (string, error) {
 	presigner := s3.NewPresignClient(e.client)
-	out, err := presigner.PresignGetObject(ctx, &s3.GetObjectInput{
+	input := &s3.GetObjectInput{
 		Bucket: aws.String(bucket),
 		Key:    aws.String(key),
-	}, s3.WithPresignExpires(expires))
+	}
+	if downloadFilename != "" {
+		input.ResponseContentDisposition = aws.String(`attachment; filename="` + downloadFilename + `"`)
+	}
+	out, err := presigner.PresignGetObject(ctx, input, s3.WithPresignExpires(expires))
 	if err != nil {
 		return "", err
 	}
-	return out.URL, nil
+	return e.rewritePublicURL(out.URL), nil
 }
 
 func (e *S3Engine) PresignPut(ctx context.Context, bucket, key, contentType string, expires time.Duration) (string, error) {
 	presigner := s3.NewPresignClient(e.client)
-	out, err := presigner.PresignPutObject(ctx, &s3.PutObjectInput{
-		Bucket:      aws.String(bucket),
-		Key:         aws.String(key),
-		ContentType: aws.String(contentType),
-	}, s3.WithPresignExpires(expires))
+	input := &s3.PutObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	}
+	if contentType != "" {
+		input.ContentType = aws.String(contentType)
+	}
+	out, err := presigner.PresignPutObject(ctx, input, s3.WithPresignExpires(expires))
 	if err != nil {
 		return "", err
 	}
-	return out.URL, nil
+	return e.rewritePublicURL(out.URL), nil
+}
+
+func (e *S3Engine) rewritePublicURL(presigned string) string {
+	if e.publicEndpoint == "" {
+		return presigned
+	}
+	raw, err := url.Parse(presigned)
+	if err != nil {
+		return presigned
+	}
+	pub, err := url.Parse(e.publicEndpoint)
+	if err != nil {
+		return presigned
+	}
+	raw.Scheme = pub.Scheme
+	raw.Host = pub.Host
+	return raw.String()
 }
 
 func objectInfoFromGet(out *s3.GetObjectOutput, key string) ObjectInfo {
@@ -342,6 +446,17 @@ func isNotFound(err error) bool {
 		}
 	}
 	return strings.Contains(err.Error(), "NotFound") || strings.Contains(err.Error(), "NoSuchKey")
+}
+
+func isPreconditionFailed(err error) bool {
+	var api smithy.APIError
+	if errors.As(err, &api) {
+		switch api.ErrorCode() {
+		case "PreconditionFailed", "412":
+			return true
+		}
+	}
+	return strings.Contains(err.Error(), "PreconditionFailed")
 }
 
 var ErrNotFound = errors.New("not found")

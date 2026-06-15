@@ -4,6 +4,7 @@ engines:
   rustfs:
     type: s3
     endpoint: http://rustfs:9000
+    public_endpoint: http://localhost:9000
     region: us-east-1
     access_key_id: rustfsadmin
     secret_access_key: rustfsadmin

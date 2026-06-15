@@ -14,7 +14,6 @@ Supabase Storage SDK–compatible HTTP API that talks directly to physical stora
 docker compose -f deploy/docker-compose.yml up -d --build
 ```
 
-- Playground: http://localhost:8080/playground/
 - Transform example: `GET /storage/v1/render/image/public/uploads/photo.png?width=320&height=200&resize=cover`
 
 ```bash
@@ -44,7 +43,15 @@ Environment variables:
 |----------|-------------|
 | `STORAGE_CONFIG_PATH` | Path to YAML config |
 | `STORAGE_DEFAULT_ENGINE` | Override default engine |
-| `UPLOAD_SIGNING_SECRET` | HMAC secret for signed URL tokens |
+| `API_KEY` | Server API key; required on `/storage/v1` when set |
+| `API_KEYS` | Comma-separated API keys (alternative to `API_KEY`) |
+| `JWT_SECRET` | Supabase-style HS256 JWT secret; `Authorization: Bearer <jwt>` accepted |
+| `ALLOW_PRESIGNED_UPLOAD` | `false` disables S3 presigned PUT (`signUpload`) |
+| `AUTH_DOWNLOAD_MODE` | `proxy` (default) or `redirect` for authenticated downloads |
+| `IMGPROXY_KEY` / `IMGPROXY_SALT` | Required when `IMGPROXY_INSECURE=false` |
+| `AUTHZ_HTTP_URL` | External HTTP authorizer ([docs/AUTHZ.md](./docs/AUTHZ.md)) |
+| `PREVIEW_ASYNC` | Async PDF/Office preview (`GET /render/job/{id}`) |
+| `SIDECAR_API_TOKEN` | Bearer token for Gotenberg and preview-worker |
 
 ## Supabase SDK usage
 
