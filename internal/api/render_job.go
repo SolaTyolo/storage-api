@@ -4,10 +4,10 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/SolaTyolo/storage-api/internal/model"
 	"github.com/SolaTyolo/storage-api/internal/preview"
 	"github.com/SolaTyolo/storage-api/internal/transform"
+	"github.com/go-chi/chi/v5"
 )
 
 func (h *Handler) getRenderJob(w http.ResponseWriter, r *http.Request) {

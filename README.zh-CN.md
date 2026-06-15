@@ -76,7 +76,7 @@ config/storage.yaml    # 本地 / 非 Docker 存储配置
 deploy/                # Docker Compose、Dockerfile、容器配置
 ```
 
-详见 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)、[docs/TRANSFORM_BACKENDS.md](./docs/TRANSFORM_BACKENDS.md)、[docs/ANALYSIS.zh-CN.md](./docs/ANALYSIS.zh-CN.md)。
+详见 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)、[docs/TRANSFORM_BACKENDS.md](./docs/TRANSFORM_BACKENDS.md)、[docs/AUTHZ.md](./docs/AUTHZ.md)、[docs/CROSS_ENGINE.md](./docs/CROSS_ENGINE.md)。
 
 ## 许可证
 

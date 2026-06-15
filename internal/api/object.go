@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/SolaTyolo/storage-api/internal/engine"
 	"github.com/SolaTyolo/storage-api/internal/model"
+	"github.com/go-chi/chi/v5"
 )
 
 func (h *Handler) uploadObject(w http.ResponseWriter, r *http.Request) {
@@ -243,9 +243,9 @@ func (h *Handler) deleteManyObjects(w http.ResponseWriter, r *http.Request) {
 }
 
 type listReq struct {
-	Prefix string `json:"prefix"`
-	Limit  int    `json:"limit"`
-	Offset int    `json:"offset"`
+	Prefix string      `json:"prefix"`
+	Limit  int         `json:"limit"`
+	Offset int         `json:"offset"`
 	SortBy *sortBySpec `json:"sortBy"`
 }
 
@@ -360,7 +360,7 @@ func (h *Handler) copyObject(w http.ResponseWriter, r *http.Request) {
 }
 
 type signReq struct {
-	ExpiresIn int `json:"expiresIn"`
+	ExpiresIn int      `json:"expiresIn"`
 	Paths     []string `json:"paths"`
 }
 

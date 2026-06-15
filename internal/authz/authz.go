@@ -21,11 +21,11 @@ const (
 
 // Subject is the authenticated caller.
 type Subject struct {
-	Type    string         `json:"type"` // api_key | jwt | anonymous
-	Role    string         `json:"role,omitempty"`
-	UserID  string         `json:"user_id,omitempty"`
-	Claims  map[string]any `json:"claims,omitempty"`
-	APIKey  bool           `json:"api_key,omitempty"`
+	Type   string         `json:"type"` // api_key | jwt | anonymous
+	Role   string         `json:"role,omitempty"`
+	UserID string         `json:"user_id,omitempty"`
+	Claims map[string]any `json:"claims,omitempty"`
+	APIKey bool           `json:"api_key,omitempty"`
 }
 
 // Resource is the storage target of an operation.

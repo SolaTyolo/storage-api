@@ -76,7 +76,7 @@ config/storage.yaml    # Local / non-Docker storage config
 deploy/                # Docker Compose, Dockerfiles, container config
 ```
 
-See [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) and [docs/TRANSFORM_BACKENDS.md](./docs/TRANSFORM_BACKENDS.md).
+See [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md), [docs/TRANSFORM_BACKENDS.md](./docs/TRANSFORM_BACKENDS.md), [docs/AUTHZ.md](./docs/AUTHZ.md), and [docs/CROSS_ENGINE.md](./docs/CROSS_ENGINE.md).
 
 Agent instructions: [AGENTS.md](./AGENTS.md)
 

@@ -25,14 +25,16 @@ type mockEngine struct {
 func (m *mockEngine) Name() string { return "mock" }
 
 func (m *mockEngine) CreateBucket(context.Context, string, engine.BucketMeta) error { return nil }
-func (m *mockEngine) DeleteBucket(context.Context, string) error                      { return nil }
-func (m *mockEngine) ListBuckets(context.Context) ([]string, error)                   { return []string{"uploads"}, nil }
+func (m *mockEngine) DeleteBucket(context.Context, string) error                    { return nil }
+func (m *mockEngine) ListBuckets(context.Context) ([]string, error)                 { return []string{"uploads"}, nil }
 func (m *mockEngine) GetBucketMeta(context.Context, string) (engine.BucketMeta, string, error) {
 	return m.meta, "mock-etag", nil
 }
-func (m *mockEngine) SetBucketMeta(context.Context, string, engine.BucketMeta, string) error { return nil }
-func (m *mockEngine) HeadBucket(context.Context, string) error                       { return nil }
-func (m *mockEngine) EmptyBucket(context.Context, string) error                      { return nil }
+func (m *mockEngine) SetBucketMeta(context.Context, string, engine.BucketMeta, string) error {
+	return nil
+}
+func (m *mockEngine) HeadBucket(context.Context, string) error  { return nil }
+func (m *mockEngine) EmptyBucket(context.Context, string) error { return nil }
 
 func (m *mockEngine) PutObject(context.Context, string, string, string, string, io.Reader, map[string]string) error {
 	return nil
@@ -54,8 +56,8 @@ func (m *mockEngine) HeadObject(_ context.Context, _, key string) (engine.Object
 	return info, nil
 }
 
-func (m *mockEngine) DeleteObject(context.Context, string, string) error       { return nil }
-func (m *mockEngine) DeleteObjects(context.Context, string, []string) error    { return nil }
+func (m *mockEngine) DeleteObject(context.Context, string, string) error    { return nil }
+func (m *mockEngine) DeleteObjects(context.Context, string, []string) error { return nil }
 func (m *mockEngine) ListObjects(_ context.Context, _, _ string, limit, offset int) ([]engine.ObjectInfo, error) {
 	objs := make([]engine.ObjectInfo, 0, len(m.objects))
 	for _, info := range m.objects {

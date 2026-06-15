@@ -15,11 +15,11 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"github.com/disintegration/imaging"
 	"github.com/SolaTyolo/storage-api/internal/config"
 	"github.com/SolaTyolo/storage-api/internal/engine"
 	"github.com/SolaTyolo/storage-api/internal/mime"
 	"github.com/SolaTyolo/storage-api/internal/model"
+	"github.com/disintegration/imaging"
 )
 
 var ErrNotSupported = errors.New("transform not supported for this media type")

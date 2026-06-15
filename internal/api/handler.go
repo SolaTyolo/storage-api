@@ -4,14 +4,14 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
-	"github.com/go-chi/cors"
 	"github.com/SolaTyolo/storage-api/internal/authz"
 	"github.com/SolaTyolo/storage-api/internal/config"
 	"github.com/SolaTyolo/storage-api/internal/engine"
 	"github.com/SolaTyolo/storage-api/internal/preview"
 	"github.com/SolaTyolo/storage-api/internal/transform"
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/cors"
 )
 
 type Handler struct {
