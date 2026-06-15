@@ -1,0 +1,190 @@
+openapi: 3.0.3
+info:
+  title: Obj Gateway API
+  version: 0.1.0
+  description: Presigned URL gateway for S3-compatible object storage.
+servers:
+  - url: http://localhost:8080/api/v1
+security:
+  - bearerAuth: []
+paths:
+  /presign/put:
+    post:
+      summary: Presign PutObject upload URL
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PresignPutRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  uploadUrl: { type: string }
+                  cdnUrl: { type: string }
+  /presign/get:
+    post:
+      summary: Presign GetObject download URL
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BucketKeyExpire"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  downloadUrl: { type: string }
+  /multipart/create:
+    post:
+      summary: Create multipart upload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PresignPutRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  uploadId: { type: string }
+  /multipart/presign-part:
+    post:
+      summary: Presign upload part URL
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bucket, key, uploadId, partNumber]
+              properties:
+                bucket: { type: string }
+                key: { type: string }
+                uploadId: { type: string }
+                partNumber: { type: integer, minimum: 1 }
+                expireSec: { type: integer }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  partUploadUrl: { type: string }
+  /multipart/complete:
+    post:
+      summary: Complete multipart upload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bucket, key, uploadId, parts]
+              properties:
+                bucket: { type: string }
+                key: { type: string }
+                uploadId: { type: string }
+                parts:
+                  type: array
+                  items:
+                    type: object
+                    required: [partNumber, etag]
+                    properties:
+                      partNumber: { type: integer }
+                      etag: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  etag: { type: string }
+  /multipart/abort:
+    post:
+      summary: Abort multipart upload
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bucket, key, uploadId]
+              properties:
+                bucket: { type: string }
+                key: { type: string }
+                uploadId: { type: string }
+      responses:
+        "200":
+          description: OK
+  /object/head:
+    post:
+      summary: Read object metadata
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BucketKey"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  size: { type: integer, format: int64 }
+                  contentType: { type: string }
+                  meta:
+                    type: object
+                    additionalProperties: { type: string }
+                  etag: { type: string }
+                  cdnUrl: { type: string }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    BucketKey:
+      type: object
+      required: [bucket, key]
+      properties:
+        bucket: { type: string }
+        key: { type: string }
+    BucketKeyExpire:
+      allOf:
+        - $ref: "#/components/schemas/BucketKey"
+        - type: object
+          properties:
+            expireSec: { type: integer, default: 900 }
+    PresignPutRequest:
+      allOf:
+        - $ref: "#/components/schemas/BucketKeyExpire"
+        - type: object
+          properties:
+            contentType: { type: string }
+            meta:
+              type: object
+              additionalProperties: { type: string }

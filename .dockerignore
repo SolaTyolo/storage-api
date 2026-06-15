@@ -1,0 +1,11 @@
+.git
+.cursor
+bin
+packages/sdk/node_modules
+packages/sdk/dist
+packages/gateway/gateway
+**/.DS_Store
+**/*.log
+.env
+.env.*
+!.env.example

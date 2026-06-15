@@ -1,14 +1,14 @@
-# 环境变量（保留 .env.example）
+# Environment
 .env
 !.env.example
 .env.local
 .env.*.local
 
-# 日志
+# Logs
 *.log
 logs/
 
-# 操作系统
+# OS
 .DS_Store
 Thumbs.db
 
@@ -18,7 +18,17 @@ Thumbs.db
 *.swp
 *.swo
 
-# 临时文件
+# Temp
 *.tmp
 *.temp
 
+# Go
+bin/
+packages/gateway/gateway
+
+# Node / SDK / playground
+packages/sdk/node_modules/
+packages/sdk/dist/
+packages/playground/node_modules/
+packages/playground/dist/
+*.tgz

@@ -1,0 +1,98 @@
+services:
+  rustfs:
+    image: rustfs/rustfs:latest
+    command: ["/data"]
+    environment:
+      RUSTFS_ACCESS_KEY: rustfsadmin
+      RUSTFS_SECRET_KEY: rustfsadmin
+      RUSTFS_ADDRESS: ":9000"
+      RUSTFS_CONSOLE_ADDRESS: ":9001"
+      RUSTFS_CONSOLE_ENABLE: "true"
+      RUSTFS_CONSOLE_CORS_ALLOWED_ORIGINS: "*"
+      RUSTFS_OBS_LOGGER_LEVEL: info
+      RUSTFS_OBS_LOG_DIRECTORY: /var/log/rustfs/
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - rustfs-data:/data
+      - rustfs-logs:/var/log/rustfs
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  rustfs-init:
+    image: minio/mc:latest
+    depends_on:
+      rustfs:
+        condition: service_healthy
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        mc alias set local http://rustfs:9000 rustfsadmin rustfsadmin
+        mc mb -p local/uploads || true
+        mc anonymous set download local/uploads || true
+        cat > /tmp/cors.json <<'EOF'
+        {
+          "CORSRules": [
+            {
+              "AllowedOrigins": ["*"],
+              "AllowedMethods": ["GET", "PUT", "POST", "HEAD", "DELETE"],
+              "AllowedHeaders": ["*"],
+              "ExposeHeaders": ["ETag", "x-amz-*"],
+              "MaxAgeSeconds": 3600
+            }
+          ]
+        }
+        EOF
+        mc cors set local/uploads /tmp/cors.json || true
+        echo "rustfs-init done"
+
+  gateway:
+    build:
+      context: ..
+      dockerfile: docker/gateway/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      JWT_SECRET: dev-secret-xxx
+      LISTEN_ADDR: ":8080"
+      # endpoint = in-docker; publicEndpoint = browser-facing host for presigned URLs
+      BUCKET_CONFIG: >
+        [{"name":"uploads","endpoint":"http://rustfs:9000","publicEndpoint":"http://localhost:9000","accessKey":"rustfsadmin","secretKey":"rustfsadmin","cdnDomain":"http://localhost:8081/uploads","useSSL":false,"region":"us-east-1"}]
+    depends_on:
+      rustfs:
+        condition: service_healthy
+      rustfs-init:
+        condition: service_completed_successfully
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "8081:80"
+    volumes:
+      - ./nginx/dev.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - rustfs
+
+  playground:
+    build:
+      context: ..
+      dockerfile: docker/playground/Dockerfile
+      args:
+        VITE_GATEWAY_ENDPOINT: http://localhost:8080/api/v1
+        VITE_DEFAULT_BUCKET: uploads
+        VITE_GATEWAY_TOKEN: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjIxMDcxNzI2OTcsImlhdCI6MTc5MTgxMjY5Nywicm9sZSI6InNlcnZpY2Vfcm9sZSIsImJ1Y2tldCI6InVwbG9hZHMifQ.lMPlddcoJ4vXKj1QFun4mInrmHCAWVhyKwCPzzhiGrw
+    ports:
+      - "5173:80"
+    depends_on:
+      - gateway
+
+volumes:
+  rustfs-data:
+  rustfs-logs:

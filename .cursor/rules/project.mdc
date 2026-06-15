@@ -1,0 +1,15 @@
+---
+description: storage-api (obj-gateway) core rules
+alwaysApply: true
+---
+
+# storage-api / obj-gateway core rules
+
+- Go 1.25 gateway in `packages/gateway`; module path `github.com/SolaTyolo/storage-api`.
+- Presigned-URL only: never proxy object PUT/GET bodies through the gateway.
+- No PostgreSQL / metadata DB; use `x-amz-meta-*` + HeadObject.
+- Adapter: `internal/adapter.ObjectAdapter` via registry (minio-go).
+- Docker playground uses RustFS; set `publicEndpoint` for browser presign URLs.
+- English only in code comments and docs; Chinese only in `README.zh-CN.md`.
+- Verify: `cd packages/gateway && go build ./cmd/gateway && go test ./...` and `cd packages/sdk && npm test && npm run build`.
+- See [AGENTS.md](../../AGENTS.md).

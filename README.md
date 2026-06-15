@@ -1,40 +1,90 @@
-# storage-api（Go + RustFS）
+# storage-api (obj-gateway)
 
-Supabase Storage 风格的元数据 + S3 原文件存储；交付采用 **Cloudinary 式 URL 参数**（`w`、`h`、`c`、`page`、`dpi`），由开源中间件按需渲染，**不预生成衍生文件**。
+Presigned-URL gateway for S3-compatible object storage (RustFS / MinIO / OSS / COS). The Go gateway never receives file bytes — clients upload directly with short-lived URLs. Go module path: `github.com/SolaTyolo/storage-api`.
 
-| 组件 | 用途 |
-|------|------|
-| **imgproxy** (MIT) | 图片变换 |
-| **Gotenberg** (MIT) | Office → PDF |
-| **preview-worker** (Poppler) | PDF 页 → JPEG |
-| 内置 ffmpeg / imaging | 视频截帧、栅格图再缩放 |
+[中文文档](./README.zh-CN.md)
 
-## 快速启动
+## Features
 
-```bash
-docker compose up -d --build
-```
+- Presigned PutObject + S3 multipart (create / part / complete / abort)
+- JWT auth with optional bucket / key-prefix isolation
+- Metadata via `x-amz-meta-*` + `HeadObject` (no metadata DB)
+- TypeScript SDK `@obj-gateway/sdk`
+- Dev stack: **RustFS** + Nginx CDN + gateway + browser playground
 
-- Playground: http://localhost:8080/playground/
-- 变换示例: `GET /storage/v1/objects/{id}/image?w=320&h=200&c=fill&q=85`
+## Quick start
 
 ```bash
-cp .env.example .env
-go run ./cmd/server
+# Full local stack (RustFS + gateway + CDN + playground)
+make docker-up
+# Playground http://localhost:5173
+# API        http://localhost:8080
+# CDN        http://localhost:8081
+# RustFS     http://localhost:9000  (console :9001, rustfsadmin/rustfsadmin)
 ```
 
-## 目录结构
+Health: `GET http://localhost:8080/health`
+
+## Repository layout
 
 ```
-cmd/server/
-internal/api/          # HTTP + playground
-internal/transform/    # 按需图像变换
-migrations/
-docker-compose.yml
+packages/gateway/      Go gateway (minio-go adapter, JWT, /api/v1)
+packages/sdk/          TypeScript frontend SDK
+packages/playground/   Browser upload playground
+docker/                Compose (RustFS), Dockerfiles, Nginx CDN
+docs/                  architecture, OpenAPI, SDK usage
 ```
 
-详见 [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)、[docs/TRANSFORM_BACKENDS.md](./docs/TRANSFORM_BACKENDS.md)。
+## HTTP API
 
-## 许可证
+All under `/api/v1` with `Authorization: Bearer <jwt>`:
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| POST | `/presign/put` | Presigned upload URL |
+| POST | `/multipart/create` | Start multipart |
+| POST | `/multipart/presign-part` | Presigned part URL |
+| POST | `/multipart/complete` | Complete multipart |
+| POST | `/multipart/abort` | Abort multipart |
+| POST | `/presign/get` | Presigned download URL |
+| POST | `/object/head` | Object metadata |
+
+See [docs/api-spec.yaml](docs/api-spec.yaml).
+
+## Configuration
+
+| Variable | Description |
+|----------|-------------|
+| `LISTEN_ADDR` | Default `:8080` |
+| `JWT_SECRET` | HS256 secret (empty = open access, **dev only**) |
+| `DEFAULT_EXPIRE_SEC` | Presign TTL (default 900) |
+| `BUCKET_CONFIG` | JSON array of bucket endpoints (AK/SK, CDN domain) |
+
+## SDK
+
+```bash
+cd packages/sdk && npm install && npm run build
+```
+
+Usage: [docs/sdk-usage.md](docs/sdk-usage.md).
+
+Publish to npm (tag `sdk-vX.Y.Z` + secret `NPM_TOKEN`): see [docs/sdk-usage.md](docs/sdk-usage.md#publish-ci).
+
+## Verify
+
+```bash
+make test
+make build
+cd packages/sdk && npm run build
+```
+
+## Docs
+
+- [docs/architecture.md](docs/architecture.md)
+- [docs/api-spec.yaml](docs/api-spec.yaml)
+- [docs/sdk-usage.md](docs/sdk-usage.md)
+- [AGENTS.md](AGENTS.md)
+
+## License
 
 MIT
