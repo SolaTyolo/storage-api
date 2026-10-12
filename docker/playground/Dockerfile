@@ -1,4 +1,8 @@
-FROM node:20-alpine AS build
+ARG TARGETPLATFORM=linux/amd64
+ARG NODE_IMAGE=node:20-alpine
+ARG NGINX_IMAGE=nginx:alpine
+
+FROM --platform=${TARGETPLATFORM} ${NODE_IMAGE} AS build
 WORKDIR /app
 
 ARG VITE_GATEWAY_ENDPOINT=http://localhost:8080/api/v1
@@ -19,7 +23,7 @@ COPY packages/playground/src ./packages/playground/src
 WORKDIR /app/packages/playground
 RUN npm install && npm run build
 
-FROM nginx:alpine
+FROM --platform=${TARGETPLATFORM} ${NGINX_IMAGE}
 COPY docker/playground/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/packages/playground/dist /usr/share/nginx/html
 EXPOSE 80

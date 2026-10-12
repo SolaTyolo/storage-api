@@ -22,7 +22,8 @@ Go Gateway
 Frontend SDK
     ↓③ PUT bytes straight to object storage (+ x-amz-meta-*)
 Object storage → CDN (Nginx → MinIO in development)
-Business backend: persist bucket + key; call /object/head when metadata is needed
+Business backend (packages/go-sdk): same presign control plane + direct PUT/GET;
+persist bucket + key; call /object/head when metadata is needed
 ```
 
 ## ObjectAdapter

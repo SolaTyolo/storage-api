@@ -94,3 +94,5 @@ HS256 JWT signed with `JWT_SECRET`:
 ```
 
 Business backends should persist `bucket + key` only; use `cdnUrl` for public assets and `/presign/get` for private downloads.
+
+For Go services, prefer [docs/go-sdk-usage.md](./go-sdk-usage.md) instead of calling the HTTP API by hand.

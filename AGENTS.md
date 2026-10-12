@@ -9,7 +9,7 @@ Presigned-URL gateway for S3-compatible storage. Go module: `github.com/SolaTyol
 - Gateway never proxies file bytes — only issues presigned URLs and runs multipart control-plane calls.
 - Metadata: `x-amz-meta-*` + `HeadObject` (no PostgreSQL / metadata DB).
 - API base: `/api/v1`
-- SDK: `packages/sdk` (`@obj-gateway/sdk`)
+- SDK: `packages/sdk` (`@obj-gateway/sdk`); Go SDK: `packages/go-sdk`
 
 ## Setup and commands
 
@@ -25,6 +25,7 @@ make run
 make build
 make test
 cd packages/gateway && go build ./cmd/gateway
+cd packages/go-sdk && go test ./...
 cd packages/sdk && npm test && npm run build
 ```
 
@@ -45,6 +46,7 @@ packages/gateway/internal/auth    # JWT + prefix checks
 packages/gateway/internal/handler # /api/v1 handlers
 packages/gateway/internal/config  # BUCKET_CONFIG loading
 packages/sdk/src/                 # TypeScript SDK
+packages/go-sdk/                  # Go backend SDK
 packages/playground/              # Browser upload playground
 docker/                           # Compose (RustFS) + Nginx + Dockerfiles
 docs/                             # architecture, OpenAPI, SDK usage
@@ -70,6 +72,7 @@ docs/                             # architecture, OpenAPI, SDK usage
 
 ```bash
 cd packages/gateway && go build ./cmd/gateway && go test ./...
+cd packages/go-sdk && go test ./...
 cd packages/sdk && npm test && npm run build
 ```
 

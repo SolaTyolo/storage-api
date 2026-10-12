@@ -2,6 +2,7 @@
 
 GATEWAY_DIR := packages/gateway
 SDK_DIR := packages/sdk
+GO_SDK_DIR := packages/go-sdk
 PLAYGROUND_DIR := packages/playground
 
 build:
@@ -9,9 +10,11 @@ build:
 
 tidy:
 	cd $(GATEWAY_DIR) && go mod tidy
+	cd $(GO_SDK_DIR) && go mod tidy
 
 test:
 	cd $(GATEWAY_DIR) && go test ./...
+	cd $(GO_SDK_DIR) && go test ./...
 	cd $(SDK_DIR) && npm test
 
 sdk-build:
@@ -27,7 +30,7 @@ run: build
 	go run ./cmd/gateway
 
 docker-up:
-	docker compose -f docker/docker-compose.yml up -d --build
+	docker compose --env-file .env -f docker/docker-compose.yml up -d --build
 
 docker-down:
-	docker compose -f docker/docker-compose.yml down
+	docker compose --env-file .env -f docker/docker-compose.yml down

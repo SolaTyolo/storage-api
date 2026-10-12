@@ -11,5 +11,6 @@ alwaysApply: true
 - Adapter: `internal/adapter.ObjectAdapter` via registry (minio-go).
 - Docker playground uses RustFS; set `publicEndpoint` for browser presign URLs.
 - English only in code comments and docs; Chinese only in `README.zh-CN.md`.
-- Verify: `cd packages/gateway && go build ./cmd/gateway && go test ./...` and `cd packages/sdk && npm test && npm run build`.
+- Go backend SDK: `packages/go-sdk` (presign + direct object I/O; same model as TS SDK).
+- Verify: `cd packages/gateway && go build ./cmd/gateway && go test ./...`, `cd packages/go-sdk && go test ./...`, and `cd packages/sdk && npm test && npm run build`.
 - See [AGENTS.md](../../AGENTS.md).

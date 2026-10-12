@@ -1,0 +1,74 @@
+name: Publish gateway image to TCR
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - "packages/gateway/**"
+      - "docker/gateway/Dockerfile"
+      - ".github/workflows/publish-gateway.yml"
+    tags:
+      - "gateway-v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-gateway-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ${{ vars.TCR_REGISTRY || 'ccr.ccs.tencentyun.com' }}
+  NAMESPACE: ${{ vars.TCR_NAMESPACE || 'solat' }}
+  IMAGE_NAME: ${{ vars.TCR_IMAGE_NAME || 'obj-gateway' }}
+  GOLANG_IMAGE: ${{ vars.GOLANG_IMAGE || 'golang:1.25-alpine' }}
+  ALPINE_IMAGE: ${{ vars.ALPINE_IMAGE || 'alpine:3.21' }}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Image metadata
+        id: meta
+        run: |
+          IMAGE="${REGISTRY}/${NAMESPACE}/${IMAGE_NAME}"
+          SHA_TAG="$(echo "${GITHUB_SHA}" | cut -c1-7)"
+          TAGS="${IMAGE}:${SHA_TAG}"
+          if [ "${GITHUB_REF_NAME}" = "main" ] || [ "${GITHUB_REF_NAME}" = "master" ]; then
+            TAGS="${TAGS},${IMAGE}:latest"
+          fi
+          if [[ "${GITHUB_REF}" == refs/tags/gateway-v* ]]; then
+            VERSION="${GITHUB_REF_NAME#gateway-v}"
+            TAGS="${TAGS},${IMAGE}:${VERSION},${IMAGE}:latest"
+          fi
+          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
+          echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Tencent Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.TCR_USERNAME }}
+          password: ${{ secrets.TCR_PASSWORD }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/gateway/Dockerfile
+          push: true
+          platforms: linux/amd64
+          build-args: |
+            TARGETPLATFORM=linux/amd64
+            GOLANG_IMAGE=${{ env.GOLANG_IMAGE }}
+            ALPINE_IMAGE=${{ env.ALPINE_IMAGE }}
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

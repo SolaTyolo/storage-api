@@ -1,6 +1,7 @@
 services:
   rustfs:
-    image: rustfs/rustfs:latest
+    image: ${RUSTFS_IMAGE:-rustfs/rustfs:latest}
+    platform: ${DOCKER_PLATFORM:-linux/amd64}
     command: ["/data"]
     environment:
       RUSTFS_ACCESS_KEY: rustfsadmin
@@ -25,7 +26,8 @@ services:
       start_period: 10s
 
   rustfs-init:
-    image: minio/mc:latest
+    image: ${RC_IMAGE:-rustfs/rc:latest}
+    platform: ${DOCKER_PLATFORM:-linux/amd64}
     depends_on:
       rustfs:
         condition: service_healthy
@@ -34,9 +36,9 @@ services:
       - -c
       - |
         set -e
-        mc alias set local http://rustfs:9000 rustfsadmin rustfsadmin
-        mc mb -p local/uploads || true
-        mc anonymous set download local/uploads || true
+        rc alias set local http://rustfs:9000 rustfsadmin rustfsadmin
+        rc mb local/uploads || true
+        rc anonymous set download local/uploads || true
         cat > /tmp/cors.json <<'EOF'
         {
           "CORSRules": [
@@ -50,13 +52,20 @@ services:
           ]
         }
         EOF
-        mc cors set local/uploads /tmp/cors.json || true
+        rc cors set local/uploads /tmp/cors.json || true
         echo "rustfs-init done"
 
   gateway:
+    platform: ${DOCKER_PLATFORM:-linux/amd64}
     build:
       context: ..
       dockerfile: docker/gateway/Dockerfile
+      args:
+        TARGETPLATFORM: ${DOCKER_PLATFORM:-linux/amd64}
+        GOLANG_IMAGE: ${GOLANG_IMAGE:-golang:1.25-alpine}
+        ALPINE_IMAGE: ${ALPINE_IMAGE:-alpine:3.21}
+        GOPROXY: ${GOPROXY:-https://proxy.golang.org,direct}
+        GOSUMDB: ${GOSUMDB:-sum.golang.org}
     ports:
       - "8080:8080"
     environment:
@@ -72,7 +81,8 @@ services:
         condition: service_completed_successfully
 
   nginx:
-    image: nginx:alpine
+    image: ${NGINX_IMAGE:-nginx:alpine}
+    platform: ${DOCKER_PLATFORM:-linux/amd64}
     ports:
       - "8081:80"
     volumes:
@@ -81,10 +91,14 @@ services:
       - rustfs
 
   playground:
+    platform: ${DOCKER_PLATFORM:-linux/amd64}
     build:
       context: ..
       dockerfile: docker/playground/Dockerfile
       args:
+        TARGETPLATFORM: ${DOCKER_PLATFORM:-linux/amd64}
+        NODE_IMAGE: ${NODE_IMAGE:-node:20-alpine}
+        NGINX_IMAGE: ${NGINX_IMAGE:-nginx:alpine}
         VITE_GATEWAY_ENDPOINT: http://localhost:8080/api/v1
         VITE_DEFAULT_BUCKET: uploads
         VITE_GATEWAY_TOKEN: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjIxMDcxNzI2OTcsImlhdCI6MTc5MTgxMjY5Nywicm9sZSI6InNlcnZpY2Vfcm9sZSIsImJ1Y2tldCI6InVwbG9hZHMifQ.lMPlddcoJ4vXKj1QFun4mInrmHCAWVhyKwCPzzhiGrw

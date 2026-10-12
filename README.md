@@ -9,7 +9,8 @@ Presigned-URL gateway for S3-compatible object storage (RustFS / MinIO / OSS / C
 - Presigned PutObject + S3 multipart (create / part / complete / abort)
 - JWT auth with optional bucket / key-prefix isolation
 - Metadata via `x-amz-meta-*` + `HeadObject` (no metadata DB)
-- TypeScript SDK `@obj-gateway/sdk`
+- TypeScript SDK `@obj-gateway/sdk` (browser / Node)
+- Go SDK `packages/go-sdk` (backend services; same presign model)
 - Dev stack: **RustFS** + Nginx CDN + gateway + browser playground
 
 ## Quick start
@@ -30,6 +31,7 @@ Health: `GET http://localhost:8080/health`
 ```
 packages/gateway/      Go gateway (minio-go adapter, JWT, /api/v1)
 packages/sdk/          TypeScript frontend SDK
+packages/go-sdk/       Go backend SDK (presign + direct object I/O)
 packages/playground/   Browser upload playground
 docker/                Compose (RustFS), Dockerfiles, Nginx CDN
 docs/                  architecture, OpenAPI, SDK usage
@@ -60,15 +62,31 @@ See [docs/api-spec.yaml](docs/api-spec.yaml).
 | `DEFAULT_EXPIRE_SEC` | Presign TTL (default 900) |
 | `BUCKET_CONFIG` | JSON array of bucket endpoints (AK/SK, CDN domain) |
 
-## SDK
+## SDKs
+
+**TypeScript** (browser / Node):
 
 ```bash
 cd packages/sdk && npm install && npm run build
 ```
 
-Usage: [docs/sdk-usage.md](docs/sdk-usage.md).
+Usage: [docs/sdk-usage.md](docs/sdk-usage.md). Publish to npm (tag `sdk-vX.Y.Z` + secret `NPM_TOKEN`): see [docs/sdk-usage.md](docs/sdk-usage.md#publish-ci).
 
-Publish to npm (tag `sdk-vX.Y.Z` + secret `NPM_TOKEN`): see [docs/sdk-usage.md](docs/sdk-usage.md#publish-ci).
+**Go** (backend services — same presign flow, no AK/SK in business code):
+
+```bash
+cd packages/go-sdk && go test ./...
+```
+
+Usage: [docs/go-sdk-usage.md](docs/go-sdk-usage.md). Module: `github.com/SolaTyolo/storage-api/packages/go-sdk`.
+
+## Gateway image (Tencent TCR)
+
+On push to `main`/`master` (gateway paths) or tag `gateway-v*`, GitHub Actions builds `docker/gateway/Dockerfile` and pushes to TCR.
+
+Repo secrets: `TCR_USERNAME`, `TCR_PASSWORD`. Optional vars: `TCR_REGISTRY` (default `ccr.ccs.tencentyun.com`), `TCR_NAMESPACE` (default `solat`), `TCR_IMAGE_NAME` (default `obj-gateway`).
+
+Docker base images for local compose are overridable via `.env` (`GOLANG_IMAGE`, `ALPINE_IMAGE`, `NODE_IMAGE`, `NGINX_IMAGE`, …); see `.env.example`.
 
 ## Verify
 
