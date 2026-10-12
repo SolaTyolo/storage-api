@@ -14,8 +14,8 @@ type BucketConfig struct {
 	Name string `json:"name"`
 	// Endpoint is the internal S3 API URL used by the gateway (e.g. http://rustfs:9000).
 	Endpoint string `json:"endpoint"`
-	// PublicEndpoint rewrites hosts in presigned URLs for browser clients (e.g. http://localhost:9000).
-	// When empty, Endpoint is used as-is.
+	// PublicEndpoint is the browser-facing S3 host used when signing URLs (e.g. http://localhost:9000).
+	// SigV4 includes Host — must match what the browser calls. When empty, Endpoint is used.
 	PublicEndpoint string `json:"publicEndpoint,omitempty"`
 	AccessKey      string `json:"accessKey"`
 	SecretKey      string `json:"secretKey"`

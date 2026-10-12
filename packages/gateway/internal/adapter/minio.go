@@ -15,36 +15,59 @@ import (
 
 // MinioAdapter implements ObjectAdapter via minio-go (S3-compatible).
 type MinioAdapter struct {
-	client         *minio.Client
+	client         *minio.Client // internal endpoint (gateway → storage)
 	core           *minio.Core
+	presign        *minio.Client // public endpoint for SigV4 (browser host must match signature)
 	cdnDomain      string
-	publicEndpoint string // scheme://host[:port] for browser-facing presigned URLs
+	publicEndpoint string
 }
 
 // NewMinioAdapter builds an adapter for one bucket config.
 func NewMinioAdapter(cfg config.BucketConfig) (*MinioAdapter, error) {
-	endpoint := strings.TrimPrefix(strings.TrimPrefix(cfg.Endpoint, "https://"), "http://")
-	endpoint = strings.TrimSuffix(endpoint, "/")
-
-	opts := &minio.Options{
-		Creds:  credentials.NewStaticV4(cfg.AccessKey, cfg.SecretKey, ""),
-		Secure: cfg.UseSSL,
-		Region: cfg.Region,
-	}
-	client, err := minio.New(endpoint, opts)
+	client, core, err := newMinioPair(cfg.Endpoint, cfg.AccessKey, cfg.SecretKey, cfg.UseSSL, cfg.Region)
 	if err != nil {
 		return nil, fmt.Errorf("minio client for %q: %w", cfg.Name, err)
 	}
-	core, err := minio.NewCore(endpoint, opts)
-	if err != nil {
-		return nil, fmt.Errorf("minio core for %q: %w", cfg.Name, err)
+
+	presignEndpoint := cfg.Endpoint
+	presignSSL := cfg.UseSSL
+	if pe := strings.TrimSpace(cfg.PublicEndpoint); pe != "" {
+		presignEndpoint = pe
+		if u, err := url.Parse(pe); err == nil && u.Scheme != "" {
+			presignSSL = u.Scheme == "https"
+		}
 	}
+	presign, _, err := newMinioPair(presignEndpoint, cfg.AccessKey, cfg.SecretKey, presignSSL, cfg.Region)
+	if err != nil {
+		return nil, fmt.Errorf("presign client for %q: %w", cfg.Name, err)
+	}
+
 	return &MinioAdapter{
 		client:         client,
 		core:           core,
+		presign:        presign,
 		cdnDomain:      strings.TrimRight(cfg.CDNDomain, "/"),
 		publicEndpoint: strings.TrimRight(cfg.PublicEndpoint, "/"),
 	}, nil
+}
+
+func newMinioPair(rawEndpoint, accessKey, secretKey string, secure bool, region string) (*minio.Client, *minio.Core, error) {
+	endpoint := strings.TrimPrefix(strings.TrimPrefix(rawEndpoint, "https://"), "http://")
+	endpoint = strings.TrimSuffix(endpoint, "/")
+	opts := &minio.Options{
+		Creds:  credentials.NewStaticV4(accessKey, secretKey, ""),
+		Secure: secure,
+		Region: region,
+	}
+	client, err := minio.New(endpoint, opts)
+	if err != nil {
+		return nil, nil, err
+	}
+	core, err := minio.NewCore(endpoint, opts)
+	if err != nil {
+		return nil, nil, err
+	}
+	return client, core, nil
 }
 
 func (a *MinioAdapter) PresignPut(ctx context.Context, bucket, key, contentType string, meta map[string]string, expiry time.Duration) (string, error) {
@@ -56,11 +79,12 @@ func (a *MinioAdapter) PresignPut(ctx context.Context, bucket, key, contentType 
 	for k, v := range normalizeMeta(meta) {
 		headers.Set("x-amz-meta-"+k, v)
 	}
-	u, err := a.client.PresignHeader(ctx, http.MethodPut, bucket, key, expiry, nil, headers)
+	// Sign with the browser-facing host so Host in SigV4 matches the request.
+	u, err := a.presign.PresignHeader(ctx, http.MethodPut, bucket, key, expiry, nil, headers)
 	if err != nil {
 		return "", fmt.Errorf("presign put: %w", err)
 	}
-	return a.rewritePublicURL(u.String()), nil
+	return u.String(), nil
 }
 
 func (a *MinioAdapter) CreateMultipart(ctx context.Context, bucket, key, contentType string, meta map[string]string) (string, error) {
@@ -78,14 +102,14 @@ func (a *MinioAdapter) CreateMultipart(ctx context.Context, bucket, key, content
 }
 
 func (a *MinioAdapter) PresignUploadPart(ctx context.Context, bucket, key, uploadID string, partNumber int, expiry time.Duration) (string, error) {
-	u, err := a.client.Presign(ctx, http.MethodPut, bucket, key, expiry, url.Values{
+	u, err := a.presign.Presign(ctx, http.MethodPut, bucket, key, expiry, url.Values{
 		"uploadId":   []string{uploadID},
 		"partNumber": []string{fmt.Sprintf("%d", partNumber)},
 	})
 	if err != nil {
 		return "", fmt.Errorf("presign upload part: %w", err)
 	}
-	return a.rewritePublicURL(u.String()), nil
+	return u.String(), nil
 }
 
 func (a *MinioAdapter) CompleteMultipart(ctx context.Context, bucket, key, uploadID string, parts []CompletePart) (string, error) {
@@ -111,11 +135,11 @@ func (a *MinioAdapter) AbortMultipart(ctx context.Context, bucket, key, uploadID
 }
 
 func (a *MinioAdapter) PresignGet(ctx context.Context, bucket, key string, expiry time.Duration) (string, error) {
-	u, err := a.client.PresignedGetObject(ctx, bucket, key, expiry, nil)
+	u, err := a.presign.PresignedGetObject(ctx, bucket, key, expiry, nil)
 	if err != nil {
 		return "", fmt.Errorf("presign get: %w", err)
 	}
-	return a.rewritePublicURL(u.String()), nil
+	return u.String(), nil
 }
 
 func (a *MinioAdapter) HeadObject(ctx context.Context, bucket, key string) (*ObjectInfo, error) {
@@ -142,24 +166,6 @@ func (a *MinioAdapter) CDNURL(bucket, key string) string {
 		return ""
 	}
 	return base + "/" + strings.TrimPrefix(key, "/")
-}
-
-// rewritePublicURL replaces the internal S3 host with PublicEndpoint for browsers.
-func (a *MinioAdapter) rewritePublicURL(raw string) string {
-	if a.publicEndpoint == "" {
-		return raw
-	}
-	u, err := url.Parse(raw)
-	if err != nil {
-		return raw
-	}
-	pub, err := url.Parse(a.publicEndpoint)
-	if err != nil || pub.Host == "" {
-		return raw
-	}
-	u.Scheme = pub.Scheme
-	u.Host = pub.Host
-	return u.String()
 }
 
 func normalizeMeta(meta map[string]string) map[string]string {

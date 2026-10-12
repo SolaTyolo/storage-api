@@ -9,6 +9,8 @@ services:
       RUSTFS_ADDRESS: ":9000"
       RUSTFS_CONSOLE_ADDRESS: ":9001"
       RUSTFS_CONSOLE_ENABLE: "true"
+      # S3 API CORS (browser presigned PUT/GET from playground :5173). Console CORS is separate.
+      RUSTFS_CORS_ALLOWED_ORIGINS: "*"
       RUSTFS_CONSOLE_CORS_ALLOWED_ORIGINS: "*"
       RUSTFS_OBS_LOGGER_LEVEL: info
       RUSTFS_OBS_LOG_DIRECTORY: /var/log/rustfs/
@@ -39,20 +41,21 @@ services:
         rc alias set local http://rustfs:9000 rustfsadmin rustfsadmin
         rc mb local/uploads || true
         rc anonymous set download local/uploads || true
+        # RustFS rc expects { "rules": [{ allowedOrigins, ... }] } (not AWS CORSRules).
         cat > /tmp/cors.json <<'EOF'
         {
-          "CORSRules": [
+          "rules": [
             {
-              "AllowedOrigins": ["*"],
-              "AllowedMethods": ["GET", "PUT", "POST", "HEAD", "DELETE"],
-              "AllowedHeaders": ["*"],
-              "ExposeHeaders": ["ETag", "x-amz-*"],
-              "MaxAgeSeconds": 3600
+              "allowedOrigins": ["*"],
+              "allowedMethods": ["GET", "PUT", "POST", "HEAD", "DELETE"],
+              "allowedHeaders": ["*"],
+              "exposeHeaders": ["ETag", "x-amz-request-id", "x-amz-id-2"],
+              "maxAgeSeconds": 3600
             }
           ]
         }
         EOF
-        rc cors set local/uploads /tmp/cors.json || true
+        rc cors set local/uploads /tmp/cors.json
         echo "rustfs-init done"
 
   gateway:

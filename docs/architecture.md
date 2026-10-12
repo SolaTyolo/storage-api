@@ -7,7 +7,7 @@
 3. **Native S3 semantics**: API aligns with PutObject / MultipartUpload; resource id is `bucket + key`.
 4. **No AK/SK on the frontend**: cloud credentials stay in the Go gateway; clients authenticate with JWT and request presigned URLs.
 5. **Multi-vendor adapter**: unified `minio-go` client; domestic clouds use S3-compatible mode.
-6. **Dev / prod parity**: RustFS + Nginx (dev CDN) + playground locally; switch bucket config to OSS/COS in production without frontend changes. Use `publicEndpoint` so browser clients get localhost/CDN hosts while the gateway talks to the in-cluster endpoint.
+6. **Dev / prod parity**: RustFS + Nginx (dev CDN) + playground locally; switch bucket config to OSS/COS in production without frontend changes. Use `endpoint` for in-cluster API calls and `publicEndpoint` when **signing** browser URLs (SigV4 Host must match the browser host — do not rewrite after signing).
 
 ## Data flow
 

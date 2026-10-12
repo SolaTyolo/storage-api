@@ -14,7 +14,11 @@ export class ObjGatewaySDK {
   private readonly signer: GatewayS3Signer;
   private readonly defaultBucket?: string;
 
-  constructor(options: ObjGatewaySDKOptions, fetchImpl: typeof fetch = fetch) {
+  constructor(
+    options: ObjGatewaySDKOptions,
+    // Bind to globalThis: bare `fetch` as a default arg loses Window receiver → Illegal invocation.
+    fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis),
+  ) {
     this.api = new GatewayApi(options.gatewayEndpoint, options.token, fetchImpl);
     this.signer = new GatewayS3Signer(this.api);
     this.defaultBucket = options.defaultBucket;

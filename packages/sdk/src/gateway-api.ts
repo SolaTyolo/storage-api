@@ -23,7 +23,8 @@ export class GatewayApi {
   constructor(
     private readonly endpoint: string,
     private readonly token: string,
-    private readonly fetchImpl: typeof fetch = fetch,
+    // Bind to globalThis: bare `fetch` as a default arg loses Window receiver → Illegal invocation.
+    private readonly fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis),
   ) {}
 
   private url(path: string): string {
