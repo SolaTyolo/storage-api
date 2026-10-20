@@ -16,8 +16,8 @@ Publishing is handled by [`.github/workflows/publish-sdk.yml`](../.github/workfl
 2. Create and push a tag matching that version:
 
 ```bash
-git tag sdk-v0.2.0
-git push origin sdk-v0.2.0
+git tag sdk-v0.2.1
+git push origin sdk-v0.2.1
 ```
 
 3. Repo secret **`NPM_TOKEN`** must be an npm access token that can publish under your npm account (same as packages like `formula-edit-lark`).
