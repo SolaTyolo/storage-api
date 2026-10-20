@@ -1,9 +1,9 @@
-# @obj-gateway/sdk usage
+# obj-gateway-sdk usage
 
 ## Install
 
 ```bash
-npm install @obj-gateway/sdk
+npm install obj-gateway-sdk
 # or from monorepo
 npm install ../packages/sdk
 ```
@@ -20,7 +20,7 @@ git tag sdk-v0.1.0
 git push origin sdk-v0.1.0
 ```
 
-3. Repo secret **`NPM_TOKEN`** must be an npm access token that can publish `@obj-gateway/sdk` (scope/org access as needed).
+3. Repo secret **`NPM_TOKEN`** must be an npm access token that can publish under your npm account (same as packages like `formula-edit-lark`).
 
 Manual run: Actions → **Publish SDK to npm** → **Run workflow**.
 
@@ -36,7 +36,7 @@ See [packages/playground/README.md](../packages/playground/README.md).
 ## Quick start
 
 ```ts
-import { ObjGatewaySDK } from "@obj-gateway/sdk";
+import { ObjGatewaySDK } from "obj-gateway-sdk";
 
 const storage = new ObjGatewaySDK({
   gatewayEndpoint: "http://localhost:8080/api/v1",

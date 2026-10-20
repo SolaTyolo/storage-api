@@ -1,6 +1,6 @@
 # Go SDK (`packages/go-sdk`)
 
-Server-side client for obj-gateway. Same model as `@obj-gateway/sdk`: JWT against the gateway control plane, object bytes go directly to S3-compatible storage via presigned URLs.
+Server-side client for obj-gateway. Same model as `obj-gateway-sdk`: JWT against the gateway control plane, object bytes go directly to S3-compatible storage via presigned URLs.
 
 Module: `github.com/SolaTyolo/storage-api/packages/go-sdk`
 
@@ -70,6 +70,7 @@ func main() {
 
 | Method | Behavior |
 |--------|----------|
+| `PresignPut` | `/presign/put` only (return URL to browser / caller) |
 | `Upload` / `UploadBytes` | `/presign/put` then PUT to object storage |
 | `MultipartUpload` | create → presign-part → PUT parts → complete |
 | `DownloadURL` | `/presign/get` |

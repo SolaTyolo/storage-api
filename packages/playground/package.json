@@ -9,7 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@obj-gateway/sdk": "file:../sdk"
+    "obj-gateway-sdk": "file:../sdk"
   },
   "devDependencies": {
     "typescript": "^5.8.2",

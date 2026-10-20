@@ -1,4 +1,4 @@
-import { ObjGatewaySDK } from "@obj-gateway/sdk";
+import { ObjGatewaySDK } from "obj-gateway-sdk";
 import "./style.css";
 
 const GATEWAY =

@@ -45,6 +45,29 @@ func (c *Client) resolveBucket(bucket string) (string, error) {
 	return b, nil
 }
 
+// PresignPut returns a short-lived PUT URL (and CDN URL) without uploading bytes.
+// Use when the caller (e.g. a browser) will PUT the object itself.
+func (c *Client) PresignPut(ctx context.Context, opts UploadOptions) (*PresignPutResponse, error) {
+	if strings.TrimSpace(opts.Key) == "" {
+		return nil, fmt.Errorf("key is required")
+	}
+	bucket, err := c.resolveBucket(opts.Bucket)
+	if err != nil {
+		return nil, err
+	}
+	contentType := opts.ContentType
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	return c.api.presignPut(ctx, bucketKeyExpire{
+		Bucket:      bucket,
+		Key:         opts.Key,
+		ContentType: contentType,
+		Meta:        opts.Meta,
+		ExpireSec:   opts.ExpireSec,
+	})
+}
+
 // Upload uploads body via gateway presign + PUT directly to object storage.
 // size must be the exact Content-Length of body (>= 0).
 func (c *Client) Upload(ctx context.Context, body io.Reader, size int64, opts UploadOptions) (*UploadResult, error) {

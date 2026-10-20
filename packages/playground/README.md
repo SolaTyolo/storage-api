@@ -1,6 +1,6 @@
 # obj-gateway playground
 
-Browser UI to exercise `@obj-gateway/sdk` against the local gateway + **RustFS** stack.
+Browser UI to exercise `obj-gateway-sdk` against the local gateway + **RustFS** stack.
 
 ## Via Docker Compose (recommended)
 

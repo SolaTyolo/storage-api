@@ -9,7 +9,7 @@ Presigned-URL gateway for S3-compatible object storage (RustFS / MinIO / OSS / C
 - Presigned PutObject + S3 multipart (create / part / complete / abort)
 - JWT auth with optional bucket / key-prefix isolation
 - Metadata via `x-amz-meta-*` + `HeadObject` (no metadata DB)
-- TypeScript SDK `@obj-gateway/sdk` (browser / Node)
+- TypeScript SDK `obj-gateway-sdk` (browser / Node)
 - Go SDK `packages/go-sdk` (backend services; same presign model)
 - Dev stack: **RustFS** + Nginx CDN + gateway + browser playground
 

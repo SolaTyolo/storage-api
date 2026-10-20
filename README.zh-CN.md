@@ -9,7 +9,7 @@
 - PutObject 预签名 + S3 Multipart（创建 / 分片 / 合并 / 终止）
 - JWT 鉴权，可选 bucket / key 前缀隔离
 - 业务元数据写入 `x-amz-meta-*`，基础信息走 `HeadObject`（无独立元数据库）
-- 前端 SDK `@obj-gateway/sdk`
+- 前端 SDK `obj-gateway-sdk`
 - Go SDK `packages/go-sdk`（业务后端；同样走预签名，不经网关传文件体）
 - 开发环境：**RustFS** + Nginx CDN + 网关 + Playground 一键启动
 

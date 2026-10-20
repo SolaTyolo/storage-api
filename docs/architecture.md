@@ -12,7 +12,7 @@
 ## Data flow
 
 ```
-Frontend @obj-gateway/sdk
+Frontend obj-gateway-sdk
     ↓① HTTP → gateway API with JWT (presign / multipart)
 Go Gateway
     ├ JWT + bucket/key prefix authorization
