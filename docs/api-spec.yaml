@@ -160,6 +160,54 @@ paths:
                     additionalProperties: { type: string }
                   etag: { type: string }
                   cdnUrl: { type: string }
+  /object/list:
+    post:
+      summary: List objects (optional delimiter for folder view)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bucket]
+              properties:
+                bucket: { type: string }
+                prefix: { type: string }
+                delimiter: { type: string, description: "Use '/' for one-level listing" }
+                continuationToken: { type: string }
+                maxKeys: { type: integer }
+      responses:
+        "200":
+          description: OK
+  /object/delete:
+    post:
+      summary: Delete an object
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BucketKey"
+      responses:
+        "200":
+          description: OK
+  /object/copy:
+    post:
+      summary: Server-side copy within a bucket
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bucket, srcKey, destKey]
+              properties:
+                bucket: { type: string }
+                srcKey: { type: string }
+                destKey: { type: string }
+      responses:
+        "200":
+          description: OK
 components:
   securitySchemes:
     bearerAuth:

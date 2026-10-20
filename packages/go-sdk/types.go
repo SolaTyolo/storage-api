@@ -93,3 +93,35 @@ type ObjectHeadResponse struct {
 	ETag        string `json:"etag"`
 	CDNURL      string `json:"cdnUrl"`
 }
+
+// ListEntry is one object or folder from /object/list.
+type ListEntry struct {
+	Key          string `json:"key"`
+	IsDir        bool   `json:"isDir"`
+	Size         int64  `json:"size,omitempty"`
+	LastModified string `json:"lastModified,omitempty"`
+	CDNURL       string `json:"cdnUrl,omitempty"`
+}
+
+// ListObjectsResponse is the gateway /object/list response.
+type ListObjectsResponse struct {
+	Entries               []ListEntry `json:"entries"`
+	IsTruncated           bool        `json:"isTruncated"`
+	NextContinuationToken string      `json:"nextContinuationToken"`
+}
+
+// ListOptions configures List / ListAllKeys.
+type ListOptions struct {
+	Bucket            string
+	Prefix            string
+	Delimiter         string
+	ContinuationToken string
+	MaxKeys           int
+}
+
+// CopyOptions configures Copy.
+type CopyOptions struct {
+	Bucket  string
+	SrcKey  string
+	DestKey string
+}

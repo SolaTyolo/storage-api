@@ -19,6 +19,21 @@ type ObjectInfo struct {
 	Meta        map[string]string
 }
 
+// ListEntry is one object or common-prefix from ListObjects.
+type ListEntry struct {
+	Key          string
+	Size         int64
+	LastModified time.Time
+	IsDir        bool
+}
+
+// ListResult is a page of ListObjects results.
+type ListResult struct {
+	Entries            []ListEntry
+	IsTruncated        bool
+	NextContinuationToken string
+}
+
 // ObjectAdapter isolates S3-compatible vendor differences.
 type ObjectAdapter interface {
 	PresignPut(ctx context.Context, bucket, key, contentType string, meta map[string]string, expiry time.Duration) (string, error)
@@ -28,5 +43,8 @@ type ObjectAdapter interface {
 	AbortMultipart(ctx context.Context, bucket, key, uploadID string) error
 	PresignGet(ctx context.Context, bucket, key string, expiry time.Duration) (string, error)
 	HeadObject(ctx context.Context, bucket, key string) (*ObjectInfo, error)
+	ListObjects(ctx context.Context, bucket, prefix, delimiter, continuationToken string, maxKeys int) (*ListResult, error)
+	DeleteObject(ctx context.Context, bucket, key string) error
+	CopyObject(ctx context.Context, bucket, srcKey, destKey string) error
 	CDNURL(bucket, key string) string
 }

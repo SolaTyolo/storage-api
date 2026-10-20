@@ -169,3 +169,35 @@ func (a *gatewayAPI) objectHead(ctx context.Context, bucket, key string) (*Objec
 	}
 	return &out, nil
 }
+
+func (a *gatewayAPI) objectList(ctx context.Context, in ListOptions) (*ListObjectsResponse, error) {
+	var out ListObjectsResponse
+	if err := a.post(ctx, "/object/list", map[string]any{
+		"bucket":            in.Bucket,
+		"prefix":            in.Prefix,
+		"delimiter":         in.Delimiter,
+		"continuationToken": in.ContinuationToken,
+		"maxKeys":           in.MaxKeys,
+	}, &out); err != nil {
+		return nil, err
+	}
+	if out.Entries == nil {
+		out.Entries = []ListEntry{}
+	}
+	return &out, nil
+}
+
+func (a *gatewayAPI) objectDelete(ctx context.Context, bucket, key string) error {
+	return a.post(ctx, "/object/delete", map[string]string{
+		"bucket": bucket,
+		"key":    key,
+	}, nil)
+}
+
+func (a *gatewayAPI) objectCopy(ctx context.Context, bucket, srcKey, destKey string) error {
+	return a.post(ctx, "/object/copy", map[string]string{
+		"bucket":  bucket,
+		"srcKey":  srcKey,
+		"destKey": destKey,
+	}, nil)
+}

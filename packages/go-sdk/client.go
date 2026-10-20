@@ -144,6 +144,206 @@ func (c *Client) Head(ctx context.Context, key string, opts *HeadOptions) (*Obje
 	return c.api.objectHead(ctx, bucket, key)
 }
 
+// List returns one page of objects/folders under prefix.
+// Pass Delimiter "/" for a single-level (folder) listing.
+func (c *Client) List(ctx context.Context, opts ListOptions) (*ListObjectsResponse, error) {
+	bucket, err := c.resolveBucket(opts.Bucket)
+	if err != nil {
+		return nil, err
+	}
+	opts.Bucket = bucket
+	return c.api.objectList(ctx, opts)
+}
+
+// ListAllKeys recursively lists object keys under prefix (no delimiter).
+func (c *Client) ListAllKeys(ctx context.Context, prefix string, opts *ListOptions) ([]string, error) {
+	o := ListOptions{}
+	if opts != nil {
+		o = *opts
+	}
+	o.Prefix = prefix
+	o.Delimiter = ""
+	bucket, err := c.resolveBucket(o.Bucket)
+	if err != nil {
+		return nil, err
+	}
+	o.Bucket = bucket
+	var keys []string
+	for {
+		page, err := c.api.objectList(ctx, o)
+		if err != nil {
+			return nil, err
+		}
+		for _, e := range page.Entries {
+			if e.IsDir || e.Key == "" || strings.HasSuffix(e.Key, "/") {
+				continue
+			}
+			keys = append(keys, e.Key)
+		}
+		if !page.IsTruncated || page.NextContinuationToken == "" {
+			break
+		}
+		o.ContinuationToken = page.NextContinuationToken
+	}
+	return keys, nil
+}
+
+// Delete removes an object key.
+func (c *Client) Delete(ctx context.Context, key string, opts *HeadOptions) error {
+	o := HeadOptions{}
+	if opts != nil {
+		o = *opts
+	}
+	bucket, err := c.resolveBucket(o.Bucket)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(key) == "" {
+		return fmt.Errorf("key is required")
+	}
+	return c.api.objectDelete(ctx, bucket, key)
+}
+
+// Copy performs a server-side copy within a bucket.
+func (c *Client) Copy(ctx context.Context, opts CopyOptions) error {
+	bucket, err := c.resolveBucket(opts.Bucket)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(opts.SrcKey) == "" || strings.TrimSpace(opts.DestKey) == "" {
+		return fmt.Errorf("srcKey and destKey are required")
+	}
+	return c.api.objectCopy(ctx, bucket, opts.SrcKey, opts.DestKey)
+}
+
+// Mkdir creates a zero-byte folder marker (key ends with "/").
+func (c *Client) Mkdir(ctx context.Context, dir string, opts *UploadOptions) error {
+	o := UploadOptions{}
+	if opts != nil {
+		o = *opts
+	}
+	dir = strings.TrimSpace(dir)
+	dir = strings.ReplaceAll(dir, "\\", "/")
+	dir = strings.Trim(dir, "/")
+	if dir == "" {
+		return fmt.Errorf("empty folder path")
+	}
+	o.Key = dir + "/"
+	o.ContentType = "application/x-directory"
+	_, err := c.UploadBytes(ctx, nil, o)
+	return err
+}
+
+// GetText downloads a small object as UTF-8 text (max 1 MiB).
+func (c *Client) GetText(ctx context.Context, key string, opts *DownloadOptions) (string, error) {
+	res, err := c.Download(ctx, key, opts)
+	if err != nil {
+		return "", err
+	}
+	defer res.Body.Close()
+	b, err := io.ReadAll(io.LimitReader(res.Body, 1<<20))
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
+// PutText uploads a small UTF-8 text object via presigned PUT.
+func (c *Client) PutText(ctx context.Context, key, body string, opts *UploadOptions) error {
+	o := UploadOptions{}
+	if opts != nil {
+		o = *opts
+	}
+	o.Key = key
+	if o.ContentType == "" {
+		o.ContentType = "text/plain; charset=utf-8"
+	}
+	_, err := c.UploadBytes(ctx, []byte(body), o)
+	return err
+}
+
+// HeadExists reports whether an object exists.
+func (c *Client) HeadExists(ctx context.Context, key string, opts *HeadOptions) (bool, error) {
+	_, err := c.Head(ctx, key, opts)
+	if err == nil {
+		return true, nil
+	}
+	if ae, ok := err.(*APIError); ok && ae.Status == http.StatusNotFound {
+		return false, nil
+	}
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "not found") || strings.Contains(msg, "nosuchkey") {
+		return false, nil
+	}
+	return false, err
+}
+
+// SyncPrefix copies all objects from srcPrefix to destPrefix and deletes
+// destination keys that are not present in the source.
+func (c *Client) SyncPrefix(ctx context.Context, srcPrefix, destPrefix string, opts *ListOptions) error {
+	srcPrefix = normalizePrefix(srcPrefix)
+	destPrefix = normalizePrefix(destPrefix)
+	if srcPrefix == "" || destPrefix == "" {
+		return fmt.Errorf("srcPrefix and destPrefix are required")
+	}
+	bucket := ""
+	if opts != nil {
+		bucket = opts.Bucket
+	}
+	srcKeys, err := c.ListAllKeys(ctx, srcPrefix, opts)
+	if err != nil {
+		return err
+	}
+	if len(srcKeys) == 0 {
+		return fmt.Errorf("source prefix empty: %s", srcPrefix)
+	}
+	destKeys, err := c.ListAllKeys(ctx, destPrefix, opts)
+	if err != nil {
+		return err
+	}
+	srcRel := map[string]string{}
+	for _, k := range srcKeys {
+		rel := strings.TrimPrefix(k, srcPrefix)
+		if rel == "" {
+			continue
+		}
+		srcRel[rel] = k
+	}
+	for rel, srcKey := range srcRel {
+		destKey := destPrefix + rel
+		if err := c.Copy(ctx, CopyOptions{Bucket: bucket, SrcKey: srcKey, DestKey: destKey}); err != nil {
+			return fmt.Errorf("copy %s → %s: %w", srcKey, destKey, err)
+		}
+	}
+	headOpts := &HeadOptions{Bucket: bucket}
+	for _, k := range destKeys {
+		rel := strings.TrimPrefix(k, destPrefix)
+		if rel == "" {
+			continue
+		}
+		if _, ok := srcRel[rel]; ok {
+			continue
+		}
+		if err := c.Delete(ctx, k, headOpts); err != nil {
+			return fmt.Errorf("delete orphan %s: %w", k, err)
+		}
+	}
+	return nil
+}
+
+func normalizePrefix(prefix string) string {
+	prefix = strings.TrimSpace(prefix)
+	prefix = strings.ReplaceAll(prefix, "\\", "/")
+	prefix = strings.TrimLeft(prefix, "/")
+	if prefix == "" {
+		return ""
+	}
+	if !strings.HasSuffix(prefix, "/") {
+		prefix += "/"
+	}
+	return prefix
+}
+
 // DownloadOptions configures Download / DownloadURL.
 type DownloadOptions struct {
 	Bucket    string

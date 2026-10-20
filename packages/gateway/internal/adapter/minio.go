@@ -159,6 +159,55 @@ func (a *MinioAdapter) HeadObject(ctx context.Context, bucket, key string) (*Obj
 	}, nil
 }
 
+func (a *MinioAdapter) ListObjects(ctx context.Context, bucket, prefix, delimiter, continuationToken string, maxKeys int) (*ListResult, error) {
+	_ = ctx
+	if maxKeys <= 0 {
+		maxKeys = 1000
+	}
+	res, err := a.core.ListObjectsV2(bucket, prefix, "", continuationToken, delimiter, maxKeys)
+	if err != nil {
+		return nil, fmt.Errorf("list objects: %w", err)
+	}
+	out := &ListResult{
+		IsTruncated:           res.IsTruncated,
+		NextContinuationToken: res.NextContinuationToken,
+	}
+	for _, p := range res.CommonPrefixes {
+		if p.Prefix == "" || p.Prefix == prefix {
+			continue
+		}
+		out.Entries = append(out.Entries, ListEntry{Key: p.Prefix, IsDir: true})
+	}
+	for _, obj := range res.Contents {
+		if obj.Key == "" || obj.Key == prefix || strings.HasSuffix(obj.Key, "/") {
+			continue
+		}
+		out.Entries = append(out.Entries, ListEntry{
+			Key:          obj.Key,
+			Size:         obj.Size,
+			LastModified: obj.LastModified,
+			IsDir:        false,
+		})
+	}
+	return out, nil
+}
+
+func (a *MinioAdapter) DeleteObject(ctx context.Context, bucket, key string) error {
+	if err := a.client.RemoveObject(ctx, bucket, key, minio.RemoveObjectOptions{}); err != nil {
+		return fmt.Errorf("delete object: %w", err)
+	}
+	return nil
+}
+
+func (a *MinioAdapter) CopyObject(ctx context.Context, bucket, srcKey, destKey string) error {
+	src := minio.CopySrcOptions{Bucket: bucket, Object: srcKey}
+	dst := minio.CopyDestOptions{Bucket: bucket, Object: destKey}
+	if _, err := a.client.CopyObject(ctx, dst, src); err != nil {
+		return fmt.Errorf("copy object: %w", err)
+	}
+	return nil
+}
+
 func (a *MinioAdapter) CDNURL(bucket, key string) string {
 	_ = bucket
 	base := a.cdnDomain

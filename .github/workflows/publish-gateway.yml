@@ -2,11 +2,6 @@ name: Publish gateway image to TCR
 
 on:
   push:
-    branches: [main, master]
-    paths:
-      - "packages/gateway/**"
-      - "docker/gateway/Dockerfile"
-      - ".github/workflows/publish-gateway.yml"
     tags:
       - "gateway-v*"
   workflow_dispatch:
@@ -36,14 +31,14 @@ jobs:
         id: meta
         run: |
           IMAGE="${REGISTRY}/${NAMESPACE}/${IMAGE_NAME}"
-          SHA_TAG="$(echo "${GITHUB_SHA}" | cut -c1-7)"
-          TAGS="${IMAGE}:${SHA_TAG}"
-          if [ "${GITHUB_REF_NAME}" = "main" ] || [ "${GITHUB_REF_NAME}" = "master" ]; then
-            TAGS="${TAGS},${IMAGE}:latest"
-          fi
           if [[ "${GITHUB_REF}" == refs/tags/gateway-v* ]]; then
             VERSION="${GITHUB_REF_NAME#gateway-v}"
-            TAGS="${TAGS},${IMAGE}:${VERSION},${IMAGE}:latest"
+            TAGS="${IMAGE}:${VERSION},${IMAGE}:latest"
+          elif [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            TAGS="${IMAGE}:latest"
+          else
+            echo "unsupported ref: ${GITHUB_REF}" >&2
+            exit 1
           fi
           echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
           echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"

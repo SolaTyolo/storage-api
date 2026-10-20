@@ -71,11 +71,14 @@ func main() {
 | Method | Behavior |
 |--------|----------|
 | `PresignPut` | `/presign/put` only (return URL to browser / caller) |
-| `Upload` / `UploadBytes` | `/presign/put` then PUT to object storage |
+| `Upload` / `UploadBytes` / `PutText` | `/presign/put` then PUT to object storage |
 | `MultipartUpload` | create → presign-part → PUT parts → complete |
-| `DownloadURL` | `/presign/get` |
-| `Download` | presign get + HTTP GET (caller closes body) |
-| `Head` | `/object/head` |
+| `DownloadURL` / `Download` / `GetText` | `/presign/get` (+ GET bytes) |
+| `Head` / `HeadExists` | `/object/head` |
+| `List` / `ListAllKeys` | `/object/list` |
+| `Delete` | `/object/delete` |
+| `Copy` / `SyncPrefix` | `/object/copy` (+ list/delete for sync) |
+| `Mkdir` | zero-byte upload with key ending in `/` |
 
 Persist `bucket + key` in your business DB. Use `cdnUrl` for public assets; use `DownloadURL` / `Download` for private objects.
 

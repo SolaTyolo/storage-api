@@ -60,6 +60,9 @@ func (h *Handler) Router() http.Handler {
 		api.Post("/multipart/complete", h.multipartComplete)
 		api.Post("/multipart/abort", h.multipartAbort)
 		api.Post("/object/head", h.objectHead)
+		api.Post("/object/list", h.objectList)
+		api.Post("/object/delete", h.objectDelete)
+		api.Post("/object/copy", h.objectCopy)
 	})
 
 	return r
