@@ -1,0 +1,126 @@
+name: Release Go SDK
+
+# Creates a Go-module-compatible tag: packages/go-sdk/vX.Y.Z
+# Consumers then: go get github.com/SolaTyolo/storage-api/packages/go-sdk@vX.Y.Z
+#
+# Do NOT use sdk-v* for this package — that prefix is for the TypeScript npm SDK.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Semver (0.2.0 or v0.2.0). Tag will be packages/go-sdk/vX.Y.Z"
+        required: true
+        type: string
+      ref:
+        description: "Git ref to tag (branch, SHA). Empty = default branch tip."
+        required: false
+        type: string
+        default: ""
+      dry_run:
+        description: "Validate + test only; do not create or push the tag"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-go-sdk
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/go-sdk
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.ref || github.ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Normalize version and tag
+        id: meta
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          RAW="${{ inputs.version }}"
+          RAW="${RAW#v}"
+          if ! [[ "$RAW" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid semver: ${{ inputs.version }} (expected e.g. 0.2.0)" >&2
+            exit 1
+          fi
+          VERSION="v${RAW}"
+          TAG="packages/go-sdk/${VERSION}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Will release tag: ${TAG}"
+
+      - name: Ensure tag does not already exist
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.meta.outputs.tag }}"
+          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+            echo "Tag already exists locally: ${TAG}" >&2
+            exit 1
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "Tag already exists on origin: ${TAG}" >&2
+            exit 1
+          fi
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.25"
+          cache: false
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
+      - name: Create and push tag
+        if: ${{ !inputs.dry_run }}
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.meta.outputs.tag }}"
+          VERSION="${{ steps.meta.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${TAG}" -m "Release Go SDK ${VERSION}"
+          git push origin "refs/tags/${TAG}"
+          echo "Pushed ${TAG}"
+
+      - name: Create GitHub Release
+        if: ${{ !inputs.dry_run }}
+        working-directory: ${{ github.workspace }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.meta.outputs.tag }}"
+          VERSION="${{ steps.meta.outputs.version }}"
+          gh release create "${TAG}" \
+            --title "Go SDK ${VERSION}" \
+            --notes "Go module tag for \`github.com/SolaTyolo/storage-api/packages/go-sdk@${VERSION}\`.
+
+          \`\`\`bash
+          go get github.com/SolaTyolo/storage-api/packages/go-sdk@${VERSION}
+          \`\`\`
+
+          Required git tag format for nested modules: \`packages/go-sdk/${VERSION}\`."
+
+      - name: Dry run summary
+        if: ${{ inputs.dry_run }}
+        working-directory: ${{ github.workspace }}
+        run: |
+          echo "Dry run OK — would create tag ${{ steps.meta.outputs.tag }} at $(git rev-parse --short HEAD)"
