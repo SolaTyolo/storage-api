@@ -7,17 +7,45 @@ Module: `github.com/SolaTyolo/storage-api/packages/go-sdk`
 ## Install
 
 ```bash
+go get github.com/SolaTyolo/storage-api/packages/go-sdk@v0.2.0
+# or
 go get github.com/SolaTyolo/storage-api/packages/go-sdk@latest
+```
+
+In the consumer `go.mod`:
+
+```go
+require github.com/SolaTyolo/storage-api/packages/go-sdk v0.2.0
 ```
 
 From this monorepo (local replace):
 
 ```bash
-go get github.com/SolaTyolo/storage-api/packages/go-sdk@v0.0.0
-# or in go.mod:
+# go.mod
 # require github.com/SolaTyolo/storage-api/packages/go-sdk v0.0.0
 # replace github.com/SolaTyolo/storage-api/packages/go-sdk => ../storage-api/packages/go-sdk
 ```
+
+## Release (CI)
+
+Nested Go modules need a path-prefixed tag. For this package that is:
+
+```text
+packages/go-sdk/vX.Y.Z
+```
+
+**Not** `sdk-v*` (that prefix is for the TypeScript npm package).
+
+Preferred: Actions → **Release Go SDK** → **Run workflow**, set `version` to e.g. `0.2.0`. The workflow runs tests, pushes `packages/go-sdk/v0.2.0`, and creates a GitHub Release.
+
+Manual equivalent:
+
+```bash
+git tag -a packages/go-sdk/v0.2.0 -m "Release Go SDK v0.2.0"
+git push origin packages/go-sdk/v0.2.0
+```
+
+Workflow: [`.github/workflows/release-go-sdk.yml`](../.github/workflows/release-go-sdk.yml).
 
 ## Quick start
 

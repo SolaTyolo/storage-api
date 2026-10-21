@@ -48,7 +48,9 @@ docs/                  架构、OpenAPI、SDK 文档
 
 ## 业务集成
 
-业务后端只需持久化 `bucket + key`，推荐使用 Go SDK（[docs/go-sdk-usage.md](docs/go-sdk-usage.md)）：
+业务后端只需持久化 `bucket + key`，推荐使用 Go SDK（[docs/go-sdk-usage.md](docs/go-sdk-usage.md)）。发版打 Go 模块 tag：Actions → **Release Go SDK**（生成 `packages/go-sdk/vX.Y.Z`）。
+
+推荐用法：
 
 - 上传：`Upload` / `MultipartUpload`（网关签发 URL，字节直传对象存储）
 - 公开资源：使用返回的 `cdnUrl`

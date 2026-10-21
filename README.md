@@ -80,6 +80,8 @@ cd packages/go-sdk && go test ./...
 
 Usage: [docs/go-sdk-usage.md](docs/go-sdk-usage.md). Module: `github.com/SolaTyolo/storage-api/packages/go-sdk`.
 
+Release Go module tag via Actions → **Release Go SDK** (creates `packages/go-sdk/vX.Y.Z`). See [docs/go-sdk-usage.md#release-ci](docs/go-sdk-usage.md#release-ci).
+
 ## Gateway image (Tencent TCR)
 
 On push to `main`/`master` (gateway paths) or tag `gateway-v*`, GitHub Actions builds `docker/gateway/Dockerfile` and pushes to TCR.
