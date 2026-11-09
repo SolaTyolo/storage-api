@@ -1,6 +1,6 @@
 {
   "name": "obj-gateway-sdk",
-  "version": "0.2.1",
+  "version": "0.3.1",
   "description": "Frontend SDK for obj-gateway: presigned S3 uploads via Go gateway",
   "type": "module",
   "main": "./dist/index.cjs",
