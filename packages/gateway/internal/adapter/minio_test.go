@@ -40,6 +40,38 @@ func TestPresignUsesPublicEndpointHost(t *testing.T) {
 	}
 }
 
+func TestCOSUsesVirtualHostedPresign(t *testing.T) {
+	ad, err := NewMinioAdapter(config.BucketConfig{
+		Name:           "develop-1490074736",
+		Endpoint:       "https://cos.ap-shanghai.myqcloud.com",
+		PublicEndpoint: "https://cos.ap-shanghai.myqcloud.com",
+		AccessKey:      "AKIDtest",
+		SecretKey:      "secret",
+		Region:         "ap-shanghai",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := ad.PresignPut(context.Background(), "develop-1490074736", "demo/a.png", "image/png", 10, nil, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantHost := "develop-1490074736.cos.ap-shanghai.myqcloud.com"
+	if u.Host != wantHost {
+		t.Fatalf("presign host = %q, want %q", u.Host, wantHost)
+	}
+	if strings.Contains(u.EscapedPath(), "/develop-1490074736/") {
+		t.Fatalf("bucket must not appear in object path: %s", u.Path)
+	}
+	if !strings.HasPrefix(u.EscapedPath(), "/demo/") {
+		t.Fatalf("object path = %q, want /demo/...", u.Path)
+	}
+}
+
 func TestPresignFallsBackToEndpoint(t *testing.T) {
 	ad, err := NewMinioAdapter(config.BucketConfig{
 		Name:      "uploads",

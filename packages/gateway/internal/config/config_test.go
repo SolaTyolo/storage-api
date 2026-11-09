@@ -74,6 +74,35 @@ func TestLoadRejectsInvalidValues(t *testing.T) {
 	}
 }
 
+func TestUseVirtualHost(t *testing.T) {
+	cases := []struct {
+		cfg  BucketConfig
+		want bool
+	}{
+		{BucketConfig{Endpoint: "http://rustfs:9000"}, false},
+		{BucketConfig{Endpoint: "https://cos.ap-shanghai.myqcloud.com"}, true},
+		{BucketConfig{Endpoint: "https://cos.ap-shanghai.myqcloud.com", Addressing: "path"}, false},
+		{BucketConfig{Endpoint: "http://rustfs:9000", Addressing: "virtual"}, true},
+	}
+	for _, tc := range cases {
+		if got := tc.cfg.UseVirtualHost(); got != tc.want {
+			t.Errorf("%+v UseVirtualHost=%v want %v", tc.cfg, got, tc.want)
+		}
+	}
+}
+
+func TestRejectCOSBucketHost(t *testing.T) {
+	t.Setenv("JWT_SECRET", "secret")
+	t.Setenv("BUCKET_CONFIG", `[{
+		"name":"app",
+		"endpoint":"https://develop-1490074736.cos.ap-shanghai.myqcloud.com",
+		"accessKey":"a","secretKey":"b","useSSL":true,"region":"ap-shanghai"
+	}]`)
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "regional COS endpoint") {
+		t.Fatalf("expected regional COS endpoint error, got %v", err)
+	}
+}
+
 func TestContentTypeAllowed(t *testing.T) {
 	b := BucketConfig{AllowedContentTypes: []string{"image/*", "application/pdf"}}
 	for ct, want := range map[string]bool{

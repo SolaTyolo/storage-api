@@ -26,7 +26,8 @@ type MinioAdapter struct {
 
 // NewMinioAdapter builds an adapter for one bucket config.
 func NewMinioAdapter(cfg config.BucketConfig) (*MinioAdapter, error) {
-	client, err := newMinioClient(cfg.Endpoint, cfg.AccessKey, cfg.SecretKey, cfg.UseSSL, cfg.Region)
+	lookup := bucketLookup(cfg)
+	client, err := newMinioClient(cfg.Endpoint, cfg.AccessKey, cfg.SecretKey, cfg.UseSSL, cfg.Region, lookup)
 	if err != nil {
 		return nil, fmt.Errorf("minio client for %q: %w", cfg.Name, err)
 	}
@@ -37,7 +38,7 @@ func NewMinioAdapter(cfg config.BucketConfig) (*MinioAdapter, error) {
 		if u, err := url.Parse(pe); err == nil && u.Scheme != "" {
 			presignSSL = u.Scheme == "https"
 		}
-		presign, err = newMinioClient(pe, cfg.AccessKey, cfg.SecretKey, presignSSL, cfg.Region)
+		presign, err = newMinioClient(pe, cfg.AccessKey, cfg.SecretKey, presignSSL, cfg.Region, lookup)
 		if err != nil {
 			return nil, fmt.Errorf("presign client for %q: %w", cfg.Name, err)
 		}
@@ -52,13 +53,24 @@ func NewMinioAdapter(cfg config.BucketConfig) (*MinioAdapter, error) {
 	}, nil
 }
 
-func newMinioClient(rawEndpoint, accessKey, secretKey string, secure bool, region string) (*minio.Client, error) {
+func bucketLookup(cfg config.BucketConfig) minio.BucketLookupType {
+	if cfg.UseVirtualHost() {
+		return minio.BucketLookupDNS
+	}
+	if strings.EqualFold(strings.TrimSpace(cfg.Addressing), "path") {
+		return minio.BucketLookupPath
+	}
+	return minio.BucketLookupAuto
+}
+
+func newMinioClient(rawEndpoint, accessKey, secretKey string, secure bool, region string, lookup minio.BucketLookupType) (*minio.Client, error) {
 	endpoint := strings.TrimPrefix(strings.TrimPrefix(rawEndpoint, "https://"), "http://")
 	endpoint = strings.TrimSuffix(endpoint, "/")
 	return minio.New(endpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(accessKey, secretKey, ""),
-		Secure: secure,
-		Region: region,
+		Creds:        credentials.NewStaticV4(accessKey, secretKey, ""),
+		Secure:       secure,
+		Region:       region,
+		BucketLookup: lookup,
 	})
 }
 
@@ -80,6 +92,9 @@ func wrapErr(op string, err error) error {
 		default:
 			if er.StatusCode == http.StatusNotFound {
 				kind = ErrNotFound
+			} else if msg := strings.ToLower(er.Message); strings.Contains(msg, "virtual-styled") ||
+				strings.Contains(msg, "virtual hosted") {
+				kind = ErrInvalid
 			}
 		}
 	}

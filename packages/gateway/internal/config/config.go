@@ -26,6 +26,11 @@ type BucketConfig struct {
 	CDNDomain      string `json:"cdnDomain"`
 	UseSSL         bool   `json:"useSSL"`
 	Region         string `json:"region,omitempty"`
+	// Addressing selects URL style: "auto" (default), "path", or "virtual".
+	// Tencent COS requires virtual-hosted URLs. Auto enables virtual for *.myqcloud.com.
+	// Endpoint must be the regional host (cos.ap-shanghai.myqcloud.com), not <bucket>.cos.…
+	// With virtual style, Name becomes the subdomain host — it is NOT appended to the object path.
+	Addressing string `json:"addressing,omitempty"`
 	// MaxUploadBytes caps object size for presigned PUT and multipart uploads (0 = unlimited).
 	// When set, clients must declare the upload size so it can be signed into the URL.
 	MaxUploadBytes int64 `json:"maxUploadBytes,omitempty"`
@@ -134,6 +139,17 @@ func Load() (*Config, error) {
 		if b.MaxUploadBytes < 0 {
 			return nil, fmt.Errorf("bucket %q: maxUploadBytes must be >= 0", b.Name)
 		}
+		if err := validateAddressing(b.Addressing); err != nil {
+			return nil, fmt.Errorf("bucket %q: %w", b.Name, err)
+		}
+		if err := rejectCOSBucketHost(b.Endpoint); err != nil {
+			return nil, fmt.Errorf("bucket %q: endpoint: %w", b.Name, err)
+		}
+		if b.PublicEndpoint != "" {
+			if err := rejectCOSBucketHost(b.PublicEndpoint); err != nil {
+				return nil, fmt.Errorf("bucket %q: publicEndpoint: %w", b.Name, err)
+			}
+		}
 		if b.Region == "" {
 			b.Region = "us-east-1"
 		}
@@ -146,6 +162,19 @@ func Load() (*Config, error) {
 func (c *Config) GetBucket(name string) (BucketConfig, bool) {
 	b, ok := c.BucketByName[name]
 	return b, ok
+}
+
+// UseVirtualHost reports whether requests should use bucket.endpoint/key style.
+// Name is placed in the hostname, never as a path prefix of the object key.
+func (b BucketConfig) UseVirtualHost() bool {
+	switch strings.ToLower(strings.TrimSpace(b.Addressing)) {
+	case "path":
+		return false
+	case "virtual", "dns", "virtual-hosted":
+		return true
+	default:
+		return isTencentCOSEndpoint(b.Endpoint) || isTencentCOSEndpoint(b.PublicEndpoint)
+	}
 }
 
 // ContentTypeAllowed reports whether contentType matches the bucket allowlist.
@@ -189,6 +218,53 @@ func validateEndpoint(raw string) error {
 		return fmt.Errorf("must not contain a path or query (got %q)", raw)
 	}
 	return nil
+}
+
+func validateAddressing(v string) error {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "", "auto", "path", "virtual", "dns", "virtual-hosted":
+		return nil
+	default:
+		return fmt.Errorf("addressing must be auto, path, or virtual (got %q)", v)
+	}
+}
+
+// rejectCOSBucketHost rejects endpoints like <bucket>.cos.<region>.myqcloud.com.
+// Those already include the bucket; combining them with Name duplicates the bucket in the key path.
+func rejectCOSBucketHost(raw string) error {
+	host := strings.ToLower(endpointHost(raw))
+	if host == "" || !isTencentCOSEndpoint(raw) {
+		return nil
+	}
+	// Regional OK: cos.ap-shanghai.myqcloud.com
+	// Bucket virtual host NOT OK: develop-xxx.cos.ap-shanghai.myqcloud.com
+	if strings.HasPrefix(host, "cos.") {
+		return nil
+	}
+	if strings.Contains(host, ".cos.") {
+		return fmt.Errorf("use the regional COS endpoint (e.g. https://cos.ap-shanghai.myqcloud.com), not the bucket virtual host %q", host)
+	}
+	return nil
+}
+
+func isTencentCOSEndpoint(raw string) bool {
+	host := strings.ToLower(endpointHost(raw))
+	return strings.Contains(host, ".myqcloud.com") || strings.Contains(host, ".tencentcos.cn")
+}
+
+func endpointHost(raw string) string {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return ""
+	}
+	if !strings.Contains(s, "://") {
+		s = "https://" + s
+	}
+	u, err := url.Parse(s)
+	if err != nil {
+		return ""
+	}
+	return u.Host
 }
 
 func envOr(key, def string) string {
