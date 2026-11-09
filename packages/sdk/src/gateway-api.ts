@@ -1,8 +1,10 @@
 import type {
+  ListObjectsResponse,
   Meta,
   MultipartCompleteResponse,
   MultipartCreateResponse,
   MultipartPresignPartResponse,
+  MultipartPresignPartsResponse,
   ObjectHeadResponse,
   PresignGetResponse,
   PresignPutResponse,
@@ -16,6 +18,12 @@ export class GatewayApiError extends Error {
   ) {
     super(message);
     this.name = "GatewayApiError";
+  }
+
+  /** Machine-readable error code from the gateway (e.g. "not_found", "forbidden"). */
+  get code(): string | undefined {
+    const b = this.body;
+    return typeof b === "object" && b && "error" in b ? String((b as { error: unknown }).error) : undefined;
   }
 }
 
@@ -31,7 +39,7 @@ export class GatewayApi {
     return `${this.endpoint.replace(/\/$/, "")}${path}`;
   }
 
-  private async post<T>(path: string, body: unknown): Promise<T> {
+  private async post<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
     const res = await this.fetchImpl(this.url(path), {
       method: "POST",
       headers: {
@@ -39,6 +47,7 @@ export class GatewayApi {
         Authorization: `Bearer ${this.token}`,
       },
       body: JSON.stringify(body),
+      signal,
     });
     const text = await res.text();
     let data: unknown = undefined;
@@ -59,65 +68,102 @@ export class GatewayApi {
     return data as T;
   }
 
-  presignPut(input: {
-    bucket: string;
-    key: string;
-    contentType?: string;
-    meta?: Meta;
-    expireSec?: number;
-  }): Promise<PresignPutResponse> {
-    return this.post("/presign/put", input);
+  presignPut(
+    input: {
+      bucket: string;
+      key: string;
+      contentType?: string;
+      meta?: Meta;
+      expireSec?: number;
+      /** Exact upload size; signed as Content-Length */
+      size?: number;
+    },
+    signal?: AbortSignal,
+  ): Promise<PresignPutResponse> {
+    return this.post("/presign/put", input, signal);
   }
 
-  presignGet(input: {
-    bucket: string;
-    key: string;
-    expireSec?: number;
-  }): Promise<PresignGetResponse> {
+  presignGet(input: { bucket: string; key: string; expireSec?: number }): Promise<PresignGetResponse> {
     return this.post("/presign/get", input);
   }
 
-  multipartCreate(input: {
-    bucket: string;
-    key: string;
-    contentType?: string;
-    meta?: Meta;
-    expireSec?: number;
-  }): Promise<MultipartCreateResponse> {
-    return this.post("/multipart/create", input);
+  multipartCreate(
+    input: {
+      bucket: string;
+      key: string;
+      contentType?: string;
+      meta?: Meta;
+      expireSec?: number;
+      size?: number;
+    },
+    signal?: AbortSignal,
+  ): Promise<MultipartCreateResponse> {
+    return this.post("/multipart/create", input, signal);
   }
 
-  multipartPresignPart(input: {
-    bucket: string;
-    key: string;
-    uploadId: string;
-    partNumber: number;
-    expireSec?: number;
-  }): Promise<MultipartPresignPartResponse> {
-    return this.post("/multipart/presign-part", input);
+  multipartPresignPart(
+    input: {
+      bucket: string;
+      key: string;
+      uploadId: string;
+      partNumber: number;
+      expireSec?: number;
+    },
+    signal?: AbortSignal,
+  ): Promise<MultipartPresignPartResponse> {
+    return this.post("/multipart/presign-part", input, signal);
   }
 
-  multipartComplete(input: {
-    bucket: string;
-    key: string;
-    uploadId: string;
-    parts: Array<{ partNumber: number; etag: string }>;
-  }): Promise<MultipartCompleteResponse> {
-    return this.post("/multipart/complete", input);
+  /** Sign up to 1000 part URLs in one call. */
+  multipartPresignParts(
+    input: {
+      bucket: string;
+      key: string;
+      uploadId: string;
+      partNumbers: number[];
+      expireSec?: number;
+    },
+    signal?: AbortSignal,
+  ): Promise<MultipartPresignPartsResponse> {
+    return this.post("/multipart/presign-parts", input, signal);
   }
 
-  multipartAbort(input: {
-    bucket: string;
-    key: string;
-    uploadId: string;
-  }): Promise<{ status: string }> {
+  multipartComplete(
+    input: {
+      bucket: string;
+      key: string;
+      uploadId: string;
+      parts: Array<{ partNumber: number; etag: string }>;
+    },
+    signal?: AbortSignal,
+  ): Promise<MultipartCompleteResponse> {
+    return this.post("/multipart/complete", input, signal);
+  }
+
+  multipartAbort(input: { bucket: string; key: string; uploadId: string }): Promise<{ status: string }> {
     return this.post("/multipart/abort", input);
   }
 
-  objectHead(input: {
-    bucket: string;
-    key: string;
-  }): Promise<ObjectHeadResponse> {
+  objectHead(input: { bucket: string; key: string }): Promise<ObjectHeadResponse> {
     return this.post("/object/head", input);
+  }
+
+  async objectList(input: {
+    bucket: string;
+    prefix?: string;
+    delimiter?: string;
+    continuationToken?: string;
+    maxKeys?: number;
+  }): Promise<ListObjectsResponse> {
+    const res = await this.post<ListObjectsResponse>("/object/list", input);
+    return { ...res, entries: res.entries ?? [] };
+  }
+
+  objectDelete(input: { bucket: string; key: string }): Promise<{ status: string }> {
+    return this.post("/object/delete", input);
+  }
+
+  objectCopy(input: { bucket: string; srcKey: string; destKey: string }): Promise<{ status: string; cdnUrl: string }> {
+    return this.post("/object/copy", input);
   }
 }

@@ -1,6 +1,6 @@
 services:
   rustfs:
-    image: ${RUSTFS_IMAGE:-rustfs/rustfs:latest}
+    image: ${RUSTFS_IMAGE:-rustfs/rustfs:1.0.0-beta.3}
     platform: ${DOCKER_PLATFORM:-linux/amd64}
     command: ["/data"]
     environment:
@@ -40,6 +40,9 @@ services:
         set -e
         rc alias set local http://rustfs:9000 rustfsadmin rustfsadmin
         rc mb local/uploads || true
+        # Dev only: anonymous read makes every object public (CDN + direct :9000),
+        # so prefix/scope checks only guard writes and presigned GETs. Use a
+        # separate private bucket without this policy for non-public data.
         rc anonymous set download local/uploads || true
         # RustFS rc expects { "rules": [{ allowedOrigins, ... }] } (not AWS CORSRules).
         cat > /tmp/cors.json <<'EOF'
@@ -64,7 +67,6 @@ services:
       context: ..
       dockerfile: docker/gateway/Dockerfile
       args:
-        TARGETPLATFORM: ${DOCKER_PLATFORM:-linux/amd64}
         GOLANG_IMAGE: ${GOLANG_IMAGE:-golang:1.25-alpine}
         ALPINE_IMAGE: ${ALPINE_IMAGE:-alpine:3.21}
         GOPROXY: ${GOPROXY:-https://proxy.golang.org,direct}
@@ -74,6 +76,7 @@ services:
     environment:
       JWT_SECRET: dev-secret-xxx
       LISTEN_ADDR: ":8080"
+      CORS_ALLOWED_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
       # endpoint = in-docker; publicEndpoint = browser-facing host for presigned URLs
       BUCKET_CONFIG: >
         [{"name":"uploads","endpoint":"http://rustfs:9000","publicEndpoint":"http://localhost:9000","accessKey":"rustfsadmin","secretKey":"rustfsadmin","cdnDomain":"http://localhost:8081/uploads","useSSL":false,"region":"us-east-1"}]
@@ -99,12 +102,14 @@ services:
       context: ..
       dockerfile: docker/playground/Dockerfile
       args:
-        TARGETPLATFORM: ${DOCKER_PLATFORM:-linux/amd64}
-        NODE_IMAGE: ${NODE_IMAGE:-node:20-alpine}
+        NODE_IMAGE: ${NODE_IMAGE:-node:22-alpine}
         NGINX_IMAGE: ${NGINX_IMAGE:-nginx:alpine}
         VITE_GATEWAY_ENDPOINT: http://localhost:8080/api/v1
         VITE_DEFAULT_BUCKET: uploads
-        VITE_GATEWAY_TOKEN: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjIxMDcxNzI2OTcsImlhdCI6MTc5MTgxMjY5Nywicm9sZSI6InNlcnZpY2Vfcm9sZSIsImJ1Y2tldCI6InVwbG9hZHMifQ.lMPlddcoJ4vXKj1QFun4mInrmHCAWVhyKwCPzzhiGrw
+        # Dev token signed with dev-secret-xxx: role=authenticated, bucket=uploads,
+        # allowedPrefixes=["demo/"], scopes=["read","write"]. Browsers must never
+        # receive service_role tokens; mint short-lived scoped tokens per user.
+        VITE_GATEWAY_TOKEN: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjIxMDcxNzI2OTcsImlhdCI6MTc5MTgxMjY5Nywicm9sZSI6ImF1dGhlbnRpY2F0ZWQiLCJidWNrZXQiOiJ1cGxvYWRzIiwiYWxsb3dlZFByZWZpeGVzIjpbImRlbW8vIl0sInNjb3BlcyI6WyJyZWFkIiwid3JpdGUiXX0.Z9DYrQi0kczs_1H04DVY6bc5IJBw1IJ-Xyt1UAhrPpM
     ports:
       - "5173:80"
     depends_on:

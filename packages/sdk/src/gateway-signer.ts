@@ -1,5 +1,5 @@
 import type { GatewayApi } from "./gateway-api.js";
-import type { Meta } from "./types.js";
+import type { Meta, SignedPart } from "./types.js";
 
 /**
  * GatewayS3Signer delegates S3 request signing to the Go gateway.
@@ -8,14 +8,18 @@ import type { Meta } from "./types.js";
 export class GatewayS3Signer {
   constructor(private readonly api: GatewayApi) {}
 
-  async signPut(input: {
-    bucket: string;
-    key: string;
-    contentType?: string;
-    meta?: Meta;
-    expireSec?: number;
-  }): Promise<{ uploadUrl: string; cdnUrl: string }> {
-    return this.api.presignPut(input);
+  async signPut(
+    input: {
+      bucket: string;
+      key: string;
+      contentType?: string;
+      meta?: Meta;
+      expireSec?: number;
+      size?: number;
+    },
+    signal?: AbortSignal,
+  ): Promise<{ uploadUrl: string; cdnUrl: string }> {
+    return this.api.presignPut(input, signal);
   }
 
   async signPart(input: {
@@ -29,11 +33,24 @@ export class GatewayS3Signer {
     return res.partUploadUrl;
   }
 
-  async signGet(input: {
-    bucket: string;
-    key: string;
-    expireSec?: number;
-  }): Promise<string> {
+  async signParts(
+    input: {
+      bucket: string;
+      key: string;
+      uploadId: string;
+      partNumbers: number[];
+      expireSec?: number;
+    },
+    signal?: AbortSignal,
+  ): Promise<SignedPart[]> {
+    const res = await this.api.multipartPresignParts(input, signal);
+    if (!res.parts || res.parts.length !== input.partNumbers.length) {
+      throw new Error(`presign-parts returned ${res.parts?.length ?? 0} URLs for ${input.partNumbers.length} parts`);
+    }
+    return res.parts;
+  }
+
+  async signGet(input: { bucket: string; key: string; expireSec?: number }): Promise<string> {
     const res = await this.api.presignGet(input);
     return res.downloadUrl;
   }

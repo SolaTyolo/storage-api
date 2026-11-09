@@ -25,32 +25,31 @@ type objectCopyReq struct {
 	DestKey string `json:"destKey"`
 }
 
-func (h *Handler) objectList(w http.ResponseWriter, r *http.Request) {
-	var req objectListReq
-	if err := decodeJSON(r, &req); err != nil {
-		writeErr(w, err)
-		return
-	}
-	if strings.TrimSpace(req.Bucket) == "" {
-		writeErr(w, errBadRequest("bucket is required"))
-		return
+func (h *Handler) objectList(r *http.Request, req *objectListReq) (any, error) {
+	if err := requireBucket(req.Bucket); err != nil {
+		return nil, err
 	}
 	prefix := strings.TrimPrefix(strings.TrimSpace(req.Prefix), "/")
+	if prefix != "" {
+		if err := validateKey(prefix); err != nil {
+			return nil, err
+		}
+	}
+	if req.MaxKeys < 0 {
+		return nil, errBadRequest("maxKeys must be >= 0")
+	}
+	maxKeys := req.MaxKeys
+	if maxKeys == 0 || maxKeys > maxListKeys {
+		maxKeys = maxListKeys
+	}
 	// Authorize against the listed prefix (empty prefix = bucket root).
-	authKey := prefix
-	if authKey == "" {
-		authKey = "/"
-	}
-	ad, err := h.resolve(req.Bucket, authKey, false, r)
+	ad, err := h.resolve(r, req.Bucket, prefix, false)
 	if err != nil {
-		writeErr(w, err)
-		return
+		return nil, err
 	}
-	res, err := ad.ListObjects(r.Context(), req.Bucket, prefix, req.Delimiter, req.ContinuationToken, req.MaxKeys)
+	res, err := ad.ListObjects(r.Context(), req.Bucket, prefix, req.Delimiter, req.ContinuationToken, maxKeys)
 	if err != nil {
-		h.log.Error("object list failed", "error", err)
-		writeErr(w, err)
-		return
+		return nil, err
 	}
 	entries := make([]map[string]any, 0, len(res.Entries))
 	for _, e := range res.Entries {
@@ -60,6 +59,9 @@ func (h *Handler) objectList(w http.ResponseWriter, r *http.Request) {
 		}
 		if !e.IsDir {
 			item["size"] = e.Size
+			if e.ETag != "" {
+				item["etag"] = e.ETag
+			}
 			if !e.LastModified.IsZero() {
 				item["lastModified"] = e.LastModified.UTC().Format(time.RFC3339)
 			}
@@ -67,66 +69,46 @@ func (h *Handler) objectList(w http.ResponseWriter, r *http.Request) {
 		}
 		entries = append(entries, item)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	return map[string]any{
 		"entries":               entries,
 		"isTruncated":           res.IsTruncated,
 		"nextContinuationToken": res.NextContinuationToken,
-	})
+	}, nil
 }
 
-func (h *Handler) objectDelete(w http.ResponseWriter, r *http.Request) {
-	var req objectDeleteReq
-	if err := decodeJSON(r, &req); err != nil {
-		writeErr(w, err)
-		return
-	}
+func (h *Handler) objectDelete(r *http.Request, req *objectDeleteReq) (any, error) {
 	if err := requireBucketKey(req.Bucket, req.Key); err != nil {
-		writeErr(w, err)
-		return
+		return nil, err
 	}
-	ad, err := h.resolve(req.Bucket, req.Key, true, r)
+	ad, err := h.resolve(r, req.Bucket, req.Key, true)
 	if err != nil {
-		writeErr(w, err)
-		return
+		return nil, err
 	}
 	if err := ad.DeleteObject(r.Context(), req.Bucket, req.Key); err != nil {
-		h.log.Error("object delete failed", "error", err)
-		writeErr(w, err)
-		return
+		return nil, err
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	return map[string]string{"status": "ok"}, nil
 }
 
-func (h *Handler) objectCopy(w http.ResponseWriter, r *http.Request) {
-	var req objectCopyReq
-	if err := decodeJSON(r, &req); err != nil {
-		writeErr(w, err)
-		return
-	}
+func (h *Handler) objectCopy(r *http.Request, req *objectCopyReq) (any, error) {
 	if err := requireBucketKey(req.Bucket, req.SrcKey); err != nil {
-		writeErr(w, err)
-		return
+		return nil, err
 	}
 	if err := requireBucketKey(req.Bucket, req.DestKey); err != nil {
-		writeErr(w, err)
-		return
+		return nil, err
 	}
-	if _, err := h.resolve(req.Bucket, req.SrcKey, false, r); err != nil {
-		writeErr(w, err)
-		return
+	if _, err := h.resolve(r, req.Bucket, req.SrcKey, false); err != nil {
+		return nil, err
 	}
-	ad, err := h.resolve(req.Bucket, req.DestKey, true, r)
+	ad, err := h.resolve(r, req.Bucket, req.DestKey, true)
 	if err != nil {
-		writeErr(w, err)
-		return
+		return nil, err
 	}
 	if err := ad.CopyObject(r.Context(), req.Bucket, req.SrcKey, req.DestKey); err != nil {
-		h.log.Error("object copy failed", "error", err)
-		writeErr(w, err)
-		return
+		return nil, err
 	}
-	writeJSON(w, http.StatusOK, map[string]string{
+	return map[string]string{
 		"status": "ok",
 		"cdnUrl": ad.CDNURL(req.Bucket, req.DestKey),
-	})
+	}, nil
 }

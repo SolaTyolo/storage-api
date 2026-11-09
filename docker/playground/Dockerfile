@@ -1,8 +1,7 @@
-ARG TARGETPLATFORM=linux/amd64
-ARG NODE_IMAGE=node:20-alpine
+ARG NODE_IMAGE=node:22-alpine
 ARG NGINX_IMAGE=nginx:alpine
 
-FROM --platform=${TARGETPLATFORM} ${NODE_IMAGE} AS build
+FROM --platform=$BUILDPLATFORM ${NODE_IMAGE} AS build
 WORKDIR /app
 
 ARG VITE_GATEWAY_ENDPOINT=http://localhost:8080/api/v1
@@ -17,13 +16,13 @@ COPY packages/sdk/tsconfig.json packages/sdk/vitest.config.ts ./packages/sdk/
 COPY packages/sdk/src ./packages/sdk/src
 RUN cd packages/sdk && npm ci && npm run build
 
-COPY packages/playground/package.json ./packages/playground/
+COPY packages/playground/package.json packages/playground/package-lock.json ./packages/playground/
 COPY packages/playground/tsconfig.json packages/playground/vite.config.ts packages/playground/index.html ./packages/playground/
 COPY packages/playground/src ./packages/playground/src
 WORKDIR /app/packages/playground
-RUN npm install && npm run build
+RUN npm ci && npm run build
 
-FROM --platform=${TARGETPLATFORM} ${NGINX_IMAGE}
+FROM ${NGINX_IMAGE}
 COPY docker/playground/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/packages/playground/dist /usr/share/nginx/html
 EXPOSE 80

@@ -30,11 +30,12 @@ const res = await storage.upload(file, {
 });
 console.log(res.cdnUrl, res.key);
 
-// Large file multipart
+// Large file multipart (parallel parts with retries; abortable via `signal`)
 const big = await storage.multipartUpload(file, {
   key: "video/xxx.mp4",
   contentType: "video/mp4",
-  partSize: 5 * 1024 * 1024,
+  partSize: 8 * 1024 * 1024,
+  concurrency: 4,
 });
 
 // Private download URL
@@ -42,17 +43,23 @@ const url = await storage.getDownloadUrl("private/report.pdf");
 
 // Metadata
 const head = await storage.head("avatar/xxx.png");
+
+// List / delete / copy
+const page = await storage.list({ prefix: "avatar/", delimiter: "/" });
+await storage.copy({ srcKey: "avatar/xxx.png", destKey: "avatar/copy.png" });
+await storage.delete("avatar/copy.png");
 ```
 
 ## JWT claims
 
-HS256 JWT signed with the gateway `JWT_SECRET`:
+HS256 JWT signed with the gateway `JWT_SECRET`; `exp` is required:
 
 | Claim | Meaning |
 |-------|---------|
 | `bucket` | Optional single-bucket restriction |
-| `allowedPrefixes` | Optional key prefix allow-list |
-| `role` | `service_role` bypasses prefix checks |
+| `allowedPrefixes` | Optional directory allow-list (`users/1` grants `users/1/...` only) |
+| `scopes` | Optional `["read"]` / `["write"]` (empty = both) |
+| `role` | `service_role` bypasses prefix and scope checks — never give it to browsers |
 
 Business backends should mint a short-lived scoped JWT for browsers, or use `service_role` server-side (prefer the [Go SDK](https://github.com/SolaTyolo/storage-api/tree/main/packages/go-sdk)).
 

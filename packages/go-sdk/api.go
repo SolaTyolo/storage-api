@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // APIError is returned when the gateway responds with a non-2xx status.
@@ -25,21 +26,30 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("gateway HTTP %d", e.Status)
 }
 
+const defaultAPITimeout = 30 * time.Second
+
 type gatewayAPI struct {
 	endpoint string
 	token    string
 	http     HTTPDoer
+	timeout  time.Duration
 }
 
-func newGatewayAPI(endpoint, token string, httpClient HTTPDoer) *gatewayAPI {
+func newGatewayAPI(endpoint, token string, httpClient HTTPDoer, timeout time.Duration) *gatewayAPI {
+	if timeout <= 0 {
+		timeout = defaultAPITimeout
+	}
 	return &gatewayAPI{
 		endpoint: strings.TrimRight(endpoint, "/"),
 		token:    token,
 		http:     httpClient,
+		timeout:  timeout,
 	}
 }
 
 func (a *gatewayAPI) post(ctx context.Context, path string, body any, out any) error {
+	ctx, cancel := context.WithTimeout(ctx, a.timeout)
+	defer cancel()
 	var payload []byte
 	var err error
 	if body != nil {
@@ -94,6 +104,7 @@ type bucketKeyExpire struct {
 	ContentType string `json:"contentType,omitempty"`
 	Meta        Meta   `json:"meta,omitempty"`
 	ExpireSec   int    `json:"expireSec,omitempty"`
+	Size        *int64 `json:"size,omitempty"`
 }
 
 func (a *gatewayAPI) presignPut(ctx context.Context, in bucketKeyExpire) (*PresignPutResponse, error) {
@@ -134,6 +145,23 @@ func (a *gatewayAPI) multipartPresignPart(ctx context.Context, bucket, key, uplo
 		"expireSec":  expireSec,
 	}, &out); err != nil {
 		return nil, err
+	}
+	return &out, nil
+}
+
+func (a *gatewayAPI) multipartPresignParts(ctx context.Context, bucket, key, uploadID string, partNumbers []int, expireSec int) (*MultipartPresignPartsResponse, error) {
+	var out MultipartPresignPartsResponse
+	if err := a.post(ctx, "/multipart/presign-parts", map[string]any{
+		"bucket":      bucket,
+		"key":         key,
+		"uploadId":    uploadID,
+		"partNumbers": partNumbers,
+		"expireSec":   expireSec,
+	}, &out); err != nil {
+		return nil, err
+	}
+	if len(out.Parts) != len(partNumbers) {
+		return nil, fmt.Errorf("presign-parts: got %d URLs for %d parts", len(out.Parts), len(partNumbers))
 	}
 	return &out, nil
 }

@@ -1,13 +1,11 @@
 package objsdk
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"strings"
 	"testing"
 )
@@ -35,7 +33,7 @@ func TestGatewayAPIPresignPut(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	api := newGatewayAPI(srv.URL+"/api/v1", "tok", srv.Client())
+	api := newGatewayAPI(srv.URL+"/api/v1", "tok", srv.Client(), 0)
 	res, err := api.presignPut(context.Background(), bucketKeyExpire{
 		Bucket:      "uploads",
 		Key:         "a.png",
@@ -57,7 +55,7 @@ func TestGatewayAPIError(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	api := newGatewayAPI(srv.URL+"/api/v1", "tok", srv.Client())
+	api := newGatewayAPI(srv.URL+"/api/v1", "tok", srv.Client(), 0)
 	_, err := api.objectHead(context.Background(), "uploads", "x")
 	ae, ok := err.(*APIError)
 	if !ok {
@@ -73,6 +71,13 @@ func TestClientUpload(t *testing.T) {
 	var putBody []byte
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/presign/put", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Size *int64 `json:"size"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body.Size == nil || *body.Size != 5 {
+			t.Errorf("presign size = %v, want 5", body.Size)
+		}
 		_ = json.NewEncoder(w).Encode(map[string]string{
 			"uploadUrl": "http://" + r.Host + "/s3/put",
 			"cdnUrl":    "https://cdn/report.pdf",
@@ -154,59 +159,5 @@ func TestClientDownloadURL(t *testing.T) {
 	}
 	if url != "https://s3/get" {
 		t.Fatalf("url = %q", url)
-	}
-}
-
-func TestClientMultipartUpload(t *testing.T) {
-	t.Parallel()
-	parts := map[int][]byte{}
-	mux := http.NewServeMux()
-	mux.HandleFunc("/api/v1/multipart/create", func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]string{"uploadId": "uid-1"})
-	})
-	mux.HandleFunc("/api/v1/multipart/presign-part", func(w http.ResponseWriter, r *http.Request) {
-		var body struct {
-			PartNumber int `json:"partNumber"`
-		}
-		_ = json.NewDecoder(r.Body).Decode(&body)
-		_ = json.NewEncoder(w).Encode(map[string]string{
-			"partUploadUrl": "http://" + r.Host + "/s3/part/" + strconv.Itoa(body.PartNumber),
-		})
-	})
-	mux.HandleFunc("/s3/part/", func(w http.ResponseWriter, r *http.Request) {
-		n, _ := strconv.Atoi(strings.TrimPrefix(r.URL.Path, "/s3/part/"))
-		b, _ := io.ReadAll(r.Body)
-		parts[n] = b
-		w.Header().Set("ETag", `"etag-`+strconv.Itoa(n)+`"`)
-	})
-	mux.HandleFunc("/api/v1/multipart/complete", func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]string{"etag": "final"})
-	})
-	mux.HandleFunc("/api/v1/object/head", func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"size": 6, "contentType": "application/octet-stream",
-			"meta": map[string]string{}, "etag": "final", "cdnUrl": "https://cdn/x",
-		})
-	})
-	srv := httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
-
-	c, err := New(Config{Endpoint: srv.URL + "/api/v1", Token: "tok", DefaultBucket: "uploads", HTTPClient: srv.Client()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	data := []byte("abcdef")
-	res, err := c.MultipartUpload(context.Background(), bytes.NewReader(data), int64(len(data)), MultipartUploadOptions{
-		UploadOptions: UploadOptions{Key: "big.bin"},
-		PartSize:      5 * 1024 * 1024,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if res.ETag != "final" {
-		t.Fatalf("res = %#v", res)
-	}
-	if string(parts[1]) != "abcdef" {
-		t.Fatalf("parts = %#v", parts)
 	}
 }

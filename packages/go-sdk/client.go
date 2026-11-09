@@ -3,6 +3,7 @@ package objsdk
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -25,10 +26,14 @@ func New(cfg Config) (*Client, error) {
 	}
 	httpClient := cfg.HTTPClient
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 5 * time.Minute}
+		// No client-wide Timeout: it would abort large transfers. Gateway calls use
+		// APITimeout; transfers are bounded by the caller's context.
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.ResponseHeaderTimeout = 2 * time.Minute
+		httpClient = &http.Client{Transport: transport}
 	}
 	return &Client{
-		api:           newGatewayAPI(endpoint, cfg.Token, httpClient),
+		api:           newGatewayAPI(endpoint, cfg.Token, httpClient, cfg.APITimeout),
 		http:          httpClient,
 		defaultBucket: cfg.DefaultBucket,
 	}, nil
@@ -157,18 +162,32 @@ func (c *Client) List(ctx context.Context, opts ListOptions) (*ListObjectsRespon
 
 // ListAllKeys recursively lists object keys under prefix (no delimiter).
 func (c *Client) ListAllKeys(ctx context.Context, prefix string, opts *ListOptions) ([]string, error) {
+	entries, err := c.listAllObjects(ctx, prefix, opts)
+	if err != nil {
+		return nil, err
+	}
+	keys := make([]string, 0, len(entries))
+	for _, e := range entries {
+		keys = append(keys, e.Key)
+	}
+	return keys, nil
+}
+
+// listAllObjects pages through every object (not folder) under prefix.
+func (c *Client) listAllObjects(ctx context.Context, prefix string, opts *ListOptions) ([]ListEntry, error) {
 	o := ListOptions{}
 	if opts != nil {
 		o = *opts
 	}
 	o.Prefix = prefix
 	o.Delimiter = ""
+	o.ContinuationToken = ""
 	bucket, err := c.resolveBucket(o.Bucket)
 	if err != nil {
 		return nil, err
 	}
 	o.Bucket = bucket
-	var keys []string
+	var out []ListEntry
 	for {
 		page, err := c.api.objectList(ctx, o)
 		if err != nil {
@@ -178,14 +197,14 @@ func (c *Client) ListAllKeys(ctx context.Context, prefix string, opts *ListOptio
 			if e.IsDir || e.Key == "" || strings.HasSuffix(e.Key, "/") {
 				continue
 			}
-			keys = append(keys, e.Key)
+			out = append(out, e)
 		}
 		if !page.IsTruncated || page.NextContinuationToken == "" {
 			break
 		}
 		o.ContinuationToken = page.NextContinuationToken
 	}
-	return keys, nil
+	return out, nil
 }
 
 // Delete removes an object key.
@@ -268,67 +287,79 @@ func (c *Client) HeadExists(ctx context.Context, key string, opts *HeadOptions) 
 	if err == nil {
 		return true, nil
 	}
-	if ae, ok := err.(*APIError); ok && ae.Status == http.StatusNotFound {
-		return false, nil
-	}
-	msg := strings.ToLower(err.Error())
-	if strings.Contains(msg, "not found") || strings.Contains(msg, "nosuchkey") {
+	var ae *APIError
+	if errors.As(err, &ae) && ae.Status == http.StatusNotFound {
 		return false, nil
 	}
 	return false, err
 }
 
-// SyncPrefix copies all objects from srcPrefix to destPrefix and deletes
-// destination keys that are not present in the source.
-func (c *Client) SyncPrefix(ctx context.Context, srcPrefix, destPrefix string, opts *ListOptions) error {
+// SyncPrefix copies objects from srcPrefix to destPrefix, skipping destination
+// keys whose size and ETag already match. With DeleteOrphans it also removes
+// destination keys missing from the source. Use DryRun to preview changes.
+func (c *Client) SyncPrefix(ctx context.Context, srcPrefix, destPrefix string, opts *SyncOptions) (*SyncResult, error) {
+	o := SyncOptions{}
+	if opts != nil {
+		o = *opts
+	}
 	srcPrefix = normalizePrefix(srcPrefix)
 	destPrefix = normalizePrefix(destPrefix)
 	if srcPrefix == "" || destPrefix == "" {
-		return fmt.Errorf("srcPrefix and destPrefix are required")
+		return nil, fmt.Errorf("srcPrefix and destPrefix are required")
 	}
-	bucket := ""
-	if opts != nil {
-		bucket = opts.Bucket
+	if strings.HasPrefix(srcPrefix, destPrefix) || strings.HasPrefix(destPrefix, srcPrefix) {
+		return nil, fmt.Errorf("srcPrefix and destPrefix must not overlap")
 	}
-	srcKeys, err := c.ListAllKeys(ctx, srcPrefix, opts)
+	listOpts := &ListOptions{Bucket: o.Bucket}
+	srcObjs, err := c.listAllObjects(ctx, srcPrefix, listOpts)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if len(srcKeys) == 0 {
-		return fmt.Errorf("source prefix empty: %s", srcPrefix)
+	if len(srcObjs) == 0 {
+		return nil, fmt.Errorf("source prefix empty: %s", srcPrefix)
 	}
-	destKeys, err := c.ListAllKeys(ctx, destPrefix, opts)
+	destObjs, err := c.listAllObjects(ctx, destPrefix, listOpts)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	srcRel := map[string]string{}
-	for _, k := range srcKeys {
-		rel := strings.TrimPrefix(k, srcPrefix)
-		if rel == "" {
-			continue
-		}
-		srcRel[rel] = k
+	destByRel := make(map[string]ListEntry, len(destObjs))
+	for _, e := range destObjs {
+		destByRel[strings.TrimPrefix(e.Key, destPrefix)] = e
 	}
-	for rel, srcKey := range srcRel {
+
+	res := &SyncResult{}
+	srcRel := make(map[string]struct{}, len(srcObjs))
+	for _, src := range srcObjs {
+		rel := strings.TrimPrefix(src.Key, srcPrefix)
+		srcRel[rel] = struct{}{}
 		destKey := destPrefix + rel
-		if err := c.Copy(ctx, CopyOptions{Bucket: bucket, SrcKey: srcKey, DestKey: destKey}); err != nil {
-			return fmt.Errorf("copy %s → %s: %w", srcKey, destKey, err)
-		}
-	}
-	headOpts := &HeadOptions{Bucket: bucket}
-	for _, k := range destKeys {
-		rel := strings.TrimPrefix(k, destPrefix)
-		if rel == "" {
+		if dst, ok := destByRel[rel]; ok && dst.Size == src.Size && src.ETag != "" && dst.ETag == src.ETag {
+			res.Skipped = append(res.Skipped, destKey)
 			continue
 		}
+		if !o.DryRun {
+			if err := c.Copy(ctx, CopyOptions{Bucket: o.Bucket, SrcKey: src.Key, DestKey: destKey}); err != nil {
+				return res, fmt.Errorf("copy %s → %s: %w", src.Key, destKey, err)
+			}
+		}
+		res.Copied = append(res.Copied, destKey)
+	}
+	if !o.DeleteOrphans {
+		return res, nil
+	}
+	headOpts := &HeadOptions{Bucket: o.Bucket}
+	for rel, dst := range destByRel {
 		if _, ok := srcRel[rel]; ok {
 			continue
 		}
-		if err := c.Delete(ctx, k, headOpts); err != nil {
-			return fmt.Errorf("delete orphan %s: %w", k, err)
+		if !o.DryRun {
+			if err := c.Delete(ctx, dst.Key, headOpts); err != nil {
+				return res, fmt.Errorf("delete orphan %s: %w", dst.Key, err)
+			}
 		}
+		res.Deleted = append(res.Deleted, dst.Key)
 	}
-	return nil
+	return res, nil
 }
 
 func normalizePrefix(prefix string) string {

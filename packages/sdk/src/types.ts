@@ -22,11 +22,17 @@ export interface UploadOptions {
   meta?: Meta;
   expireSec?: number;
   onProgress?: (ev: ProgressEvent) => void;
+  /** Abort the upload (multipart uploads are aborted on the server too). */
+  signal?: AbortSignal;
 }
 
 export interface MultipartUploadOptions extends UploadOptions {
-  /** Part size in bytes (default 5 MiB) */
+  /** Part size in bytes (min/default 5 MiB; raised automatically to stay within 10,000 parts) */
   partSize?: number;
+  /** Parts uploaded in parallel (default 4) */
+  concurrency?: number;
+  /** Retries per part on network errors and 5xx/429 responses (default 3) */
+  maxRetries?: number;
 }
 
 export interface UploadResult {
@@ -56,6 +62,15 @@ export interface MultipartPresignPartResponse {
   partUploadUrl: string;
 }
 
+export interface SignedPart {
+  partNumber: number;
+  url: string;
+}
+
+export interface MultipartPresignPartsResponse {
+  parts: SignedPart[];
+}
+
 export interface MultipartCompleteResponse {
   etag: string;
 }
@@ -66,4 +81,35 @@ export interface ObjectHeadResponse {
   meta: Meta;
   etag: string;
   cdnUrl: string;
+}
+
+export interface ListEntry {
+  key: string;
+  isDir: boolean;
+  size?: number;
+  etag?: string;
+  lastModified?: string;
+  cdnUrl?: string;
+}
+
+export interface ListObjectsResponse {
+  entries: ListEntry[];
+  isTruncated: boolean;
+  nextContinuationToken: string;
+}
+
+export interface ListOptions {
+  bucket?: string;
+  prefix?: string;
+  /** "/" for a single-level (folder) listing */
+  delimiter?: string;
+  continuationToken?: string;
+  /** Page size (max 1000) */
+  maxKeys?: number;
+}
+
+export interface CopyOptions {
+  bucket?: string;
+  srcKey: string;
+  destKey: string;
 }

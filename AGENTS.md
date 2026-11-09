@@ -64,7 +64,8 @@ docs/                             # architecture, OpenAPI, SDK usage
 ## Code conventions
 
 - Errors: JSON `{"error","message"}`.
-- Auth: `Authorization: Bearer` JWT; claims `bucket`, `allowedPrefixes`, `role`.
+- Auth: `Authorization: Bearer` JWT (HS256, `exp` required); claims `bucket`, `allowedPrefixes` (directory boundaries), `scopes` (`read`/`write`), `role`.
+- Handlers: use the generic `handle(h, fn)` helper and return errors; adapters wrap storage errors with `adapter.Err*` kinds for HTTP mapping.
 - New routes: register under `/api/v1` in `packages/gateway/internal/handler`.
 - Minimal diffs; match existing chi patterns.
 

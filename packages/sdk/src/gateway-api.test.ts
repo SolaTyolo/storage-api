@@ -3,7 +3,7 @@ import { GatewayApi, GatewayApiError } from "./gateway-api.js";
 
 describe("GatewayApi", () => {
   it("posts JSON with Authorization and parses response", async () => {
-    const fetchImpl = vi.fn(async () => {
+    const fetchImpl = vi.fn(async (_url: string, _init?: RequestInit) => {
       return new Response(JSON.stringify({ uploadUrl: "https://s3/put", cdnUrl: "https://cdn/a" }), {
         status: 200,
         headers: { "Content-Type": "application/json" },

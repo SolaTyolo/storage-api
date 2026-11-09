@@ -7,7 +7,8 @@ Presigned-URL gateway for S3-compatible object storage (RustFS / MinIO / OSS / C
 ## Features
 
 - Presigned PutObject + S3 multipart (create / part / complete / abort)
-- JWT auth with optional bucket / key-prefix isolation
+- JWT auth with optional bucket / key-prefix isolation and read/write scopes
+- Per-bucket upload limits (`maxUploadBytes`, `allowedContentTypes`)
 - Metadata via `x-amz-meta-*` + `HeadObject` (no metadata DB)
 - TypeScript SDK `obj-gateway-sdk` (browser / Node)
 - Go SDK `packages/go-sdk` (backend services; same presign model)
@@ -24,7 +25,7 @@ make docker-up
 # RustFS     http://localhost:9000  (console :9001, rustfsadmin/rustfsadmin)
 ```
 
-Health: `GET http://localhost:8080/health`
+Health: `GET http://localhost:8080/health` (liveness), `GET http://localhost:8080/ready` (storage reachable)
 
 ## Repository layout
 
@@ -46,21 +47,32 @@ All under `/api/v1` with `Authorization: Bearer <jwt>`:
 | POST | `/presign/put` | Presigned upload URL |
 | POST | `/multipart/create` | Start multipart |
 | POST | `/multipart/presign-part` | Presigned part URL |
+| POST | `/multipart/presign-parts` | Batch of presigned part URLs (≤1000) |
 | POST | `/multipart/complete` | Complete multipart |
 | POST | `/multipart/abort` | Abort multipart |
 | POST | `/presign/get` | Presigned download URL |
 | POST | `/object/head` | Object metadata |
+| POST | `/object/list` | List objects / folders |
+| POST | `/object/delete` | Delete object |
+| POST | `/object/copy` | Server-side copy |
 
-See [docs/api-spec.yaml](docs/api-spec.yaml).
+Read-only calls also use `POST` + JSON so keys and tokens stay out of URLs and access logs. See [docs/api-spec.yaml](docs/api-spec.yaml).
 
 ## Configuration
 
 | Variable | Description |
 |----------|-------------|
 | `LISTEN_ADDR` | Default `:8080` |
-| `JWT_SECRET` | HS256 secret (empty = open access, **dev only**) |
+| `JWT_SECRET` | HS256 secret (**required**) |
+| `ALLOW_NO_JWT` | `true` + empty `JWT_SECRET` = open access, **local dev only** |
+| `JWT_ISSUER` / `JWT_AUDIENCE` | Enforce `iss` / `aud` when set |
 | `DEFAULT_EXPIRE_SEC` | Presign TTL (default 900) |
-| `BUCKET_CONFIG` | JSON array of bucket endpoints (AK/SK, CDN domain) |
+| `MAX_EXPIRE_SEC` | Upper bound for client `expireSec` (default 86400, max 604800) |
+| `CORS_ALLOWED_ORIGINS` | Comma-separated origins (default `*`) |
+| `MAX_BODY_BYTES` | Max JSON request body (default 1 MiB) |
+| `BUCKET_CONFIG` | JSON array of bucket endpoints (AK/SK, CDN domain, optional `maxUploadBytes`, `allowedContentTypes`) |
+
+Buckets that set `cdnDomain` are assumed to be publicly readable; keep private data in a separate bucket (see [docs/architecture.md](docs/architecture.md#public-vs-private-buckets)).
 
 ## SDKs
 

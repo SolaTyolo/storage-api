@@ -22,7 +22,7 @@ git push origin sdk-v0.2.1
 
 3. Repo secret **`NPM_TOKEN`** must be an npm access token that can publish under your npm account (same as packages like `formula-edit-lark`).
 
-Manual run: Actions → **Publish SDK to npm** → **Run workflow**.
+Manual run: Actions → **Publish SDK to npm** → **Run workflow** with the `sdk-vX.Y.Z` tag to publish; the tag must match `package.json`.
 
 ## Playground (Docker)
 
@@ -52,11 +52,16 @@ const res = await storage.upload(file, {
   onProgress: (ev) => console.log(ev.percent),
 });
 
-// Large file multipart
+// Large file multipart: parts upload in parallel with per-part retries.
+// partSize is raised automatically to stay within S3's 10,000-part limit.
+const controller = new AbortController();
 const big = await storage.multipartUpload(file, {
   key: "video/xxx.mp4",
   contentType: "video/mp4",
-  partSize: 5 * 1024 * 1024,
+  partSize: 8 * 1024 * 1024,
+  concurrency: 4,
+  maxRetries: 3,
+  signal: controller.signal, // controller.abort() also aborts the multipart upload server-side
   onProgress: (ev) => console.log(ev.percent),
 });
 
@@ -67,17 +72,30 @@ const url = await storage.getDownloadUrl("private/report.pdf");
 
 // Metadata
 const head = await storage.head("avatar/xxx.png");
+
+// List / delete / copy
+const page = await storage.list({ prefix: "avatar/", delimiter: "/" });
+const all = await storage.listAll("avatar/");
+await storage.copy({ srcKey: "avatar/xxx.png", destKey: "avatar/backup.png" });
+await storage.delete("avatar/backup.png");
 ```
+
+Uploads send the file size to the gateway, which signs it as `Content-Length`; buckets with `maxUploadBytes` reject larger files before any bytes are sent. Storage CORS must expose the `ETag` header for multipart uploads.
+
+Errors from the gateway are `GatewayApiError` (`status`, `code`, `body`); failed storage PUTs are `StorageHttpError` (`status`).
 
 ## JWT claims
 
-HS256 JWT signed with `JWT_SECRET`:
+HS256 JWT signed with `JWT_SECRET`; `exp` is required:
 
 | Claim | Meaning |
 |-------|---------|
 | `bucket` | Optional single-bucket restriction |
-| `allowedPrefixes` | Optional key prefix allow-list |
-| `role` | `service_role` bypasses prefix checks |
+| `allowedPrefixes` | Optional directory allow-list (`users/1` grants `users/1/...`, not `users/10/...`) |
+| `scopes` | Optional `["read"]`, `["write"]` or both (empty = both) |
+| `role` | `service_role` bypasses prefix and scope checks — backends only |
+
+Browsers should get short-lived tokens scoped to the user's prefix, never `service_role`.
 
 ## Result shape
 

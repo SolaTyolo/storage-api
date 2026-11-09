@@ -1,6 +1,9 @@
 package objsdk
 
-import "net/http"
+import (
+	"net/http"
+	"time"
+)
 
 // Config configures the obj-gateway client.
 type Config struct {
@@ -10,8 +13,13 @@ type Config struct {
 	Token string
 	// DefaultBucket is used when a call omits Bucket.
 	DefaultBucket string
-	// HTTPClient overrides the default http.Client (optional).
+	// HTTPClient overrides the default http.Client (optional). It is used for both
+	// gateway calls and object transfers, so avoid a short http.Client.Timeout;
+	// use APITimeout and the call context instead.
 	HTTPClient HTTPDoer
+	// APITimeout bounds each gateway control-plane call (default 30s).
+	// Object PUT/GET transfers are bounded only by the caller's context.
+	APITimeout time.Duration
 }
 
 // HTTPDoer is the subset of http.Client used by the SDK.
@@ -35,11 +43,16 @@ type UploadOptions struct {
 // MultipartUploadOptions extends UploadOptions for multipart uploads.
 type MultipartUploadOptions struct {
 	UploadOptions
-	// PartSize in bytes (minimum / default 5 MiB).
+	// PartSize in bytes (minimum / default 5 MiB). It is raised automatically
+	// when the object would otherwise need more than 10,000 parts.
 	PartSize int64
+	// Concurrency is the number of parts uploaded in parallel (default 4).
+	Concurrency int
+	// MaxRetries per part on network errors and 5xx/429 responses (default 3; negative disables).
+	MaxRetries int
 }
 
-// ProgressFunc reports upload progress.
+// ProgressFunc reports upload progress. It is never called concurrently.
 type ProgressFunc func(loaded, total int64)
 
 // UploadResult is returned after a successful upload.
@@ -74,6 +87,17 @@ type MultipartPresignPartResponse struct {
 	PartUploadURL string `json:"partUploadUrl"`
 }
 
+// SignedPart is one entry of the gateway /multipart/presign-parts response.
+type SignedPart struct {
+	PartNumber int    `json:"partNumber"`
+	URL        string `json:"url"`
+}
+
+// MultipartPresignPartsResponse is the gateway /multipart/presign-parts response.
+type MultipartPresignPartsResponse struct {
+	Parts []SignedPart `json:"parts"`
+}
+
 // MultipartCompleteResponse is the gateway /multipart/complete response.
 type MultipartCompleteResponse struct {
 	ETag string `json:"etag"`
@@ -99,6 +123,7 @@ type ListEntry struct {
 	Key          string `json:"key"`
 	IsDir        bool   `json:"isDir"`
 	Size         int64  `json:"size,omitempty"`
+	ETag         string `json:"etag,omitempty"`
 	LastModified string `json:"lastModified,omitempty"`
 	CDNURL       string `json:"cdnUrl,omitempty"`
 }
@@ -124,4 +149,20 @@ type CopyOptions struct {
 	Bucket  string
 	SrcKey  string
 	DestKey string
+}
+
+// SyncOptions configures SyncPrefix.
+type SyncOptions struct {
+	Bucket string
+	// DryRun reports planned changes without copying or deleting.
+	DryRun bool
+	// DeleteOrphans removes destination keys that do not exist under the source prefix.
+	DeleteOrphans bool
+}
+
+// SyncResult lists the destination keys affected by SyncPrefix.
+type SyncResult struct {
+	Copied  []string
+	Skipped []string
+	Deleted []string
 }

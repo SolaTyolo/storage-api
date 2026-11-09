@@ -21,6 +21,7 @@
   "scripts": {
     "build": "tsup src/index.ts --format esm,cjs --dts --clean",
     "test": "vitest run",
+    "typecheck": "tsc --noEmit",
     "test:watch": "vitest",
     "prepublishOnly": "npm test && npm run build"
   },
@@ -37,9 +38,6 @@
     "url": "https://github.com/SolaTyolo/storage-api/issues"
   },
   "homepage": "https://github.com/SolaTyolo/storage-api/tree/main/packages/sdk#readme",
-  "dependencies": {
-    "@aws-sdk/client-s3": "^3.758.0"
-  },
   "devDependencies": {
     "tsup": "^8.4.0",
     "typescript": "^5.8.2",

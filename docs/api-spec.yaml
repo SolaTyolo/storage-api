@@ -1,8 +1,20 @@
 openapi: 3.0.3
 info:
   title: Obj Gateway API
-  version: 0.1.0
-  description: Presigned URL gateway for S3-compatible object storage.
+  version: 0.3.0
+  description: |
+    Presigned URL gateway for S3-compatible object storage.
+
+    All endpoints are `POST` with a JSON body (including read-only ones such as
+    `/object/head` and `/object/list`). This keeps bucket/key/token out of URLs
+    and access logs; responses are per-user and not meant to be HTTP-cached.
+
+    Object keys must not start with `/`, must not contain empty, `.` or `..`
+    path segments or control characters, and are at most 1024 bytes. A single
+    trailing `/` is allowed (folder marker).
+
+    Errors use `{"error": "<code>", "message": "<text>"}`; 5xx responses also
+    include `requestId` (same as the `X-Request-Id` response header).
 servers:
   - url: http://localhost:8080/api/v1
 security:
@@ -11,12 +23,15 @@ paths:
   /presign/put:
     post:
       summary: Presign PutObject upload URL
+      description: |
+        When `size` is sent it is signed as `Content-Length`, so storage rejects
+        bodies of any other length. Buckets with `maxUploadBytes` require `size`.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/PresignPutRequest"
+              $ref: "#/components/schemas/UploadRequest"
       responses:
         "200":
           description: OK
@@ -27,6 +42,10 @@ paths:
                 properties:
                   uploadUrl: { type: string }
                   cdnUrl: { type: string }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "413": { $ref: "#/components/responses/Error" }
+        "415": { $ref: "#/components/responses/Error" }
   /presign/get:
     post:
       summary: Presign GetObject download URL
@@ -48,12 +67,15 @@ paths:
   /multipart/create:
     post:
       summary: Create multipart upload
+      description: |
+        `size` (total object size) is required when the bucket sets
+        `maxUploadBytes`; the assembled object is re-checked on complete.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/PresignPutRequest"
+              $ref: "#/components/schemas/UploadRequest"
       responses:
         "200":
           description: OK
@@ -65,7 +87,7 @@ paths:
                   uploadId: { type: string }
   /multipart/presign-part:
     post:
-      summary: Presign upload part URL
+      summary: Presign one upload part URL
       requestBody:
         required: true
         content:
@@ -77,7 +99,7 @@ paths:
                 bucket: { type: string }
                 key: { type: string }
                 uploadId: { type: string }
-                partNumber: { type: integer, minimum: 1 }
+                partNumber: { type: integer, minimum: 1, maximum: 10000 }
                 expireSec: { type: integer }
       responses:
         "200":
@@ -88,6 +110,41 @@ paths:
                 type: object
                 properties:
                   partUploadUrl: { type: string }
+  /multipart/presign-parts:
+    post:
+      summary: Presign several upload part URLs in one call
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [bucket, key, uploadId, partNumbers]
+              properties:
+                bucket: { type: string }
+                key: { type: string }
+                uploadId: { type: string }
+                partNumbers:
+                  type: array
+                  minItems: 1
+                  maxItems: 1000
+                  items: { type: integer, minimum: 1, maximum: 10000 }
+                expireSec: { type: integer }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  parts:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        partNumber: { type: integer }
+                        url: { type: string }
   /multipart/complete:
     post:
       summary: Complete multipart upload
@@ -104,11 +161,12 @@ paths:
                 uploadId: { type: string }
                 parts:
                   type: array
+                  maxItems: 10000
                   items:
                     type: object
                     required: [partNumber, etag]
                     properties:
-                      partNumber: { type: integer }
+                      partNumber: { type: integer, minimum: 1, maximum: 10000 }
                       etag: { type: string }
       responses:
         "200":
@@ -119,6 +177,9 @@ paths:
                 type: object
                 properties:
                   etag: { type: string }
+        "404": { $ref: "#/components/responses/Error" }
+        "413":
+          description: Assembled object exceeds the bucket maxUploadBytes and was deleted.
   /multipart/abort:
     post:
       summary: Abort multipart upload
@@ -160,9 +221,13 @@ paths:
                     additionalProperties: { type: string }
                   etag: { type: string }
                   cdnUrl: { type: string }
+        "404": { $ref: "#/components/responses/Error" }
   /object/list:
     post:
       summary: List objects (optional delimiter for folder view)
+      description: |
+        Authorization is checked against `prefix`; prefix-scoped tokens must
+        list at or below a granted directory (e.g. `users/1/`).
       requestBody:
         required: true
         content:
@@ -175,10 +240,28 @@ paths:
                 prefix: { type: string }
                 delimiter: { type: string, description: "Use '/' for one-level listing" }
                 continuationToken: { type: string }
-                maxKeys: { type: integer }
+                maxKeys: { type: integer, minimum: 0, maximum: 1000, description: "0 = 1000; larger values are capped" }
       responses:
         "200":
           description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  entries:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        key: { type: string }
+                        isDir: { type: boolean }
+                        size: { type: integer, format: int64 }
+                        etag: { type: string }
+                        lastModified: { type: string, format: date-time }
+                        cdnUrl: { type: string }
+                  isTruncated: { type: boolean }
+                  nextContinuationToken: { type: string }
   /object/delete:
     post:
       summary: Delete an object
@@ -194,6 +277,7 @@ paths:
   /object/copy:
     post:
       summary: Server-side copy within a bucket
+      description: Requires read access to `srcKey` and write access to `destKey`.
       requestBody:
         required: true
         content:
@@ -208,26 +292,56 @@ paths:
       responses:
         "200":
           description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+                  cdnUrl: { type: string }
+        "404": { $ref: "#/components/responses/Error" }
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
+      description: |
+        HS256, `exp` required. Claims: `bucket` (optional single bucket),
+        `allowedPrefixes` (directory prefixes; `users/1` grants `users/1/...`
+        only), `scopes` (`read` / `write`; empty = both), `role`
+        (`service_role` bypasses prefix and scope checks). `iss` / `aud` are
+        enforced when JWT_ISSUER / JWT_AUDIENCE are configured.
+  responses:
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
   schemas:
+    Error:
+      type: object
+      properties:
+        error: { type: string, example: forbidden }
+        message: { type: string }
+        requestId: { type: string }
     BucketKey:
       type: object
       required: [bucket, key]
       properties:
         bucket: { type: string }
-        key: { type: string }
+        key: { type: string, maxLength: 1024 }
     BucketKeyExpire:
       allOf:
         - $ref: "#/components/schemas/BucketKey"
         - type: object
           properties:
-            expireSec: { type: integer, default: 900 }
-    PresignPutRequest:
+            expireSec:
+              type: integer
+              minimum: 0
+              description: "0 = DEFAULT_EXPIRE_SEC (900); must be <= MAX_EXPIRE_SEC (default 86400)"
+    UploadRequest:
       allOf:
         - $ref: "#/components/schemas/BucketKeyExpire"
         - type: object
@@ -236,3 +350,8 @@ components:
             meta:
               type: object
               additionalProperties: { type: string }
+            size:
+              type: integer
+              format: int64
+              minimum: 0
+              description: Exact object size in bytes

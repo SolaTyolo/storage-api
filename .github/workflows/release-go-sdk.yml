@@ -47,12 +47,13 @@ jobs:
       - name: Normalize version and tag
         id: meta
         working-directory: ${{ github.workspace }}
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          RAW="${{ inputs.version }}"
-          RAW="${RAW#v}"
+          RAW="${INPUT_VERSION#v}"
           if ! [[ "$RAW" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
-            echo "Invalid semver: ${{ inputs.version }} (expected e.g. 0.2.0)" >&2
+            echo "Invalid semver: ${INPUT_VERSION} (expected e.g. 0.2.0)" >&2
             exit 1
           fi
           VERSION="v${RAW}"
@@ -63,9 +64,10 @@ jobs:
 
       - name: Ensure tag does not already exist
         working-directory: ${{ github.workspace }}
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
         run: |
           set -euo pipefail
-          TAG="${{ steps.meta.outputs.tag }}"
           if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
             echo "Tag already exists locally: ${TAG}" >&2
             exit 1
@@ -85,15 +87,16 @@ jobs:
         run: go vet ./...
 
       - name: Test
-        run: go test ./...
+        run: go test -race ./...
 
       - name: Create and push tag
         if: ${{ !inputs.dry_run }}
         working-directory: ${{ github.workspace }}
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+          VERSION: ${{ steps.meta.outputs.version }}
         run: |
           set -euo pipefail
-          TAG="${{ steps.meta.outputs.tag }}"
-          VERSION="${{ steps.meta.outputs.version }}"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a "${TAG}" -m "Release Go SDK ${VERSION}"
@@ -105,10 +108,10 @@ jobs:
         working-directory: ${{ github.workspace }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          VERSION: ${{ steps.meta.outputs.version }}
         run: |
           set -euo pipefail
-          TAG="${{ steps.meta.outputs.tag }}"
-          VERSION="${{ steps.meta.outputs.version }}"
           gh release create "${TAG}" \
             --title "Go SDK ${VERSION}" \
             --notes "Go module tag for \`github.com/SolaTyolo/storage-api/packages/go-sdk@${VERSION}\`.
@@ -122,5 +125,7 @@ jobs:
       - name: Dry run summary
         if: ${{ inputs.dry_run }}
         working-directory: ${{ github.workspace }}
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
         run: |
-          echo "Dry run OK — would create tag ${{ steps.meta.outputs.tag }} at $(git rev-parse --short HEAD)"
+          echo "Dry run OK — would create tag ${TAG} at $(git rev-parse --short HEAD)"

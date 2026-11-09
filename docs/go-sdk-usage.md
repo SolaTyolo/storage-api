@@ -100,16 +100,45 @@ func main() {
 |--------|----------|
 | `PresignPut` | `/presign/put` only (return URL to browser / caller) |
 | `Upload` / `UploadBytes` / `PutText` | `/presign/put` then PUT to object storage |
-| `MultipartUpload` | create → presign-part → PUT parts → complete |
+| `MultipartUpload` | create → presign-parts (batched) → parallel PUT parts with retries → complete |
 | `DownloadURL` / `Download` / `GetText` | `/presign/get` (+ GET bytes) |
-| `Head` / `HeadExists` | `/object/head` |
+| `Head` / `HeadExists` | `/object/head` (`HeadExists` is false only on 404) |
 | `List` / `ListAllKeys` | `/object/list` |
 | `Delete` | `/object/delete` |
-| `Copy` / `SyncPrefix` | `/object/copy` (+ list/delete for sync) |
+| `Copy` | `/object/copy` |
+| `SyncPrefix` | list both prefixes, copy changed objects (size + ETag), optional orphan delete / dry run |
 | `Mkdir` | zero-byte upload with key ending in `/` |
 
 Persist `bucket + key` in your business DB. Use `cdnUrl` for public assets; use `DownloadURL` / `Download` for private objects.
 
+### Multipart
+
+```go
+f, _ := os.Open("video.mp4")
+st, _ := f.Stat()
+res, err := c.MultipartUpload(ctx, f, st.Size(), objsdk.MultipartUploadOptions{
+	UploadOptions: objsdk.UploadOptions{Key: "video/a.mp4", ContentType: "video/mp4"},
+	PartSize:      16 << 20, // raised automatically beyond 10,000 parts
+	Concurrency:   4,
+	MaxRetries:    3,
+})
+```
+
+Bodies implementing `io.ReaderAt` (e.g. `*os.File`, `*bytes.Reader`) are read in parallel without buffering; other readers buffer up to `Concurrency + 1` parts in memory.
+
+### Sync
+
+```go
+res, err := c.SyncPrefix(ctx, "releases/v1/", "releases/current/", &objsdk.SyncOptions{
+	DeleteOrphans: true,
+	DryRun:        true, // inspect res.Copied / res.Skipped / res.Deleted first
+})
+```
+
+### Timeouts
+
+The default HTTP client has no overall timeout so large transfers are not cut off. Gateway calls are bounded by `Config.APITimeout` (default 30s); object transfers are bounded by the context you pass in. If you supply `Config.HTTPClient`, avoid setting `http.Client.Timeout`.
+
 ## JWT
 
-Issue an HS256 JWT with `JWT_SECRET`. For internal services, set `role` to `service_role` to bypass key-prefix checks (still subject to gateway auth being enabled).
+Issue an HS256 JWT with `JWT_SECRET` and an `exp` claim. For internal services, set `role` to `service_role` to bypass key-prefix and scope checks (still subject to gateway auth being enabled).

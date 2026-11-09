@@ -6,7 +6,8 @@ const GATEWAY =
   "http://localhost:8080/api/v1";
 const TOKEN =
   (import.meta.env.VITE_GATEWAY_TOKEN as string | undefined) ||
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjIxMDcxNzI2OTcsImlhdCI6MTc5MTgxMjY5Nywicm9sZSI6InNlcnZpY2Vfcm9sZSIsImJ1Y2tldCI6InVwbG9hZHMifQ.lMPlddcoJ4vXKj1QFun4mInrmHCAWVhyKwCPzzhiGrw";
+  // Dev-only scoped token (uploads bucket, demo/ prefix, read+write); never ship service_role to browsers.
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjIxMDcxNzI2OTcsImlhdCI6MTc5MTgxMjY5Nywicm9sZSI6ImF1dGhlbnRpY2F0ZWQiLCJidWNrZXQiOiJ1cGxvYWRzIiwiYWxsb3dlZFByZWZpeGVzIjpbImRlbW8vIl0sInNjb3BlcyI6WyJyZWFkIiwid3JpdGUiXX0.Z9DYrQi0kczs_1H04DVY6bc5IJBw1IJ-Xyt1UAhrPpM";
 const BUCKET = (import.meta.env.VITE_DEFAULT_BUCKET as string | undefined) || "uploads";
 const MULTIPART_THRESHOLD = 8 * 1024 * 1024;
 
