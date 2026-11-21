@@ -44,7 +44,7 @@ packages/gateway/cmd/gateway/     Main binary
 packages/gateway/internal/adapter # minio-go ObjectAdapter
 packages/gateway/internal/auth    # JWT + prefix checks
 packages/gateway/internal/handler # /api/v1 handlers
-packages/gateway/internal/config  # BUCKET_CONFIG loading
+packages/gateway/internal/config  # BUCKET_<NAME>_* loading
 packages/sdk/src/                 # TypeScript SDK
 packages/go-sdk/                  # Go backend SDK
 packages/playground/              # Browser upload playground

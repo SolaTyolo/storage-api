@@ -1,10 +1,10 @@
 package config
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/url"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -13,29 +13,55 @@ import (
 // S3MaxPresignExpire is the SigV4 upper bound for presigned URL lifetime.
 const S3MaxPresignExpire = 7 * 24 * time.Hour
 
+// Bucket env vars use BUCKET_<KEY>_<FIELD>, analogous to YAML:
+//
+//	bucket:
+//	  uploads:
+//	    endpoint: ...
+//	    accessKey: ...
+//
+// Example: BUCKET_UPLOADS_ENDPOINT, BUCKET_UPLOADS_ACCESSKEY.
+// NAME defaults to lowercased KEY when omitted.
+//
+// Known fields (longest match wins): NAME, ENDPOINT, PUBLICENDPOINT, ACCESSKEY,
+// SECRETKEY, CDNDOMAIN, USESSL, REGION, ADDRESSING, MAXUPLOADBYTES, ALLOWEDCONTENTTYPES.
+var bucketEnvFields = []string{
+	"ALLOWEDCONTENTTYPES",
+	"MAXUPLOADBYTES",
+	"PUBLICENDPOINT",
+	"CDNDOMAIN",
+	"ACCESSKEY",
+	"SECRETKEY",
+	"ADDRESSING",
+	"ENDPOINT",
+	"USESSL",
+	"REGION",
+	"NAME",
+}
+
 // BucketConfig describes one S3-compatible bucket endpoint.
 type BucketConfig struct {
-	Name string `json:"name"`
+	Name string
 	// Endpoint is the internal S3 API URL used by the gateway (e.g. http://rustfs:9000).
-	Endpoint string `json:"endpoint"`
+	Endpoint string
 	// PublicEndpoint is the browser-facing S3 host used when signing URLs (e.g. http://localhost:9000).
 	// SigV4 includes Host — must match what the browser calls. When empty, Endpoint is used.
-	PublicEndpoint string `json:"publicEndpoint,omitempty"`
-	AccessKey      string `json:"accessKey"`
-	SecretKey      string `json:"secretKey"`
-	CDNDomain      string `json:"cdnDomain"`
-	UseSSL         bool   `json:"useSSL"`
-	Region         string `json:"region,omitempty"`
+	PublicEndpoint string
+	AccessKey      string
+	SecretKey      string
+	CDNDomain      string
+	UseSSL         bool
+	Region         string
 	// Addressing selects URL style: "auto" (default), "path", or "virtual".
 	// Tencent COS requires virtual-hosted URLs. Auto enables virtual for *.myqcloud.com.
 	// Endpoint must be the regional host (cos.ap-shanghai.myqcloud.com), not <bucket>.cos.…
 	// With virtual style, Name becomes the subdomain host — it is NOT appended to the object path.
-	Addressing string `json:"addressing,omitempty"`
+	Addressing string
 	// MaxUploadBytes caps object size for presigned PUT and multipart uploads (0 = unlimited).
 	// When set, clients must declare the upload size so it can be signed into the URL.
-	MaxUploadBytes int64 `json:"maxUploadBytes,omitempty"`
+	MaxUploadBytes int64
 	// AllowedContentTypes restricts upload Content-Type (exact match or "type/*"). Empty allows any.
-	AllowedContentTypes []string `json:"allowedContentTypes,omitempty"`
+	AllowedContentTypes []string
 }
 
 // Config is gateway runtime configuration from environment.
@@ -107,55 +133,137 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("CORS_ALLOWED_ORIGINS must not be empty")
 	}
 
-	raw := strings.TrimSpace(os.Getenv("BUCKET_CONFIG"))
-	if raw == "" {
-		return nil, fmt.Errorf("BUCKET_CONFIG is required")
+	buckets, err := loadBucketsFromEnv()
+	if err != nil {
+		return nil, err
 	}
-	if err := json.Unmarshal([]byte(raw), &cfg.Buckets); err != nil {
-		return nil, fmt.Errorf("parse BUCKET_CONFIG: %w", err)
-	}
-	if len(cfg.Buckets) == 0 {
-		return nil, fmt.Errorf("BUCKET_CONFIG must contain at least one bucket")
-	}
+	cfg.Buckets = buckets
 	for i := range cfg.Buckets {
 		b := &cfg.Buckets[i]
-		if b.Name == "" {
-			return nil, fmt.Errorf("bucket name is required")
-		}
 		if _, dup := cfg.BucketByName[b.Name]; dup {
 			return nil, fmt.Errorf("bucket %q is configured more than once", b.Name)
-		}
-		if b.Endpoint == "" || b.AccessKey == "" || b.SecretKey == "" {
-			return nil, fmt.Errorf("bucket %q: endpoint, accessKey, secretKey are required", b.Name)
-		}
-		if err := validateEndpoint(b.Endpoint); err != nil {
-			return nil, fmt.Errorf("bucket %q: endpoint: %w", b.Name, err)
-		}
-		if b.PublicEndpoint != "" {
-			if err := validateEndpoint(b.PublicEndpoint); err != nil {
-				return nil, fmt.Errorf("bucket %q: publicEndpoint: %w", b.Name, err)
-			}
-		}
-		if b.MaxUploadBytes < 0 {
-			return nil, fmt.Errorf("bucket %q: maxUploadBytes must be >= 0", b.Name)
-		}
-		if err := validateAddressing(b.Addressing); err != nil {
-			return nil, fmt.Errorf("bucket %q: %w", b.Name, err)
-		}
-		if err := rejectCOSBucketHost(b.Endpoint); err != nil {
-			return nil, fmt.Errorf("bucket %q: endpoint: %w", b.Name, err)
-		}
-		if b.PublicEndpoint != "" {
-			if err := rejectCOSBucketHost(b.PublicEndpoint); err != nil {
-				return nil, fmt.Errorf("bucket %q: publicEndpoint: %w", b.Name, err)
-			}
-		}
-		if b.Region == "" {
-			b.Region = "us-east-1"
 		}
 		cfg.BucketByName[b.Name] = *b
 	}
 	return cfg, nil
+}
+
+// loadBucketsFromEnv discovers BUCKET_<KEY>_* groups and builds BucketConfig entries.
+func loadBucketsFromEnv() ([]BucketConfig, error) {
+	groups := map[string]map[string]string{}
+	for _, e := range os.Environ() {
+		envKey, value, ok := strings.Cut(e, "=")
+		if !ok {
+			continue
+		}
+		bucketKey, field, ok := parseBucketEnvKey(envKey)
+		if !ok {
+			continue
+		}
+		if groups[bucketKey] == nil {
+			groups[bucketKey] = map[string]string{}
+		}
+		groups[bucketKey][field] = value
+	}
+	if len(groups) == 0 {
+		return nil, fmt.Errorf("at least one BUCKET_<NAME>_* group is required (e.g. BUCKET_UPLOADS_ENDPOINT)")
+	}
+
+	keys := make([]string, 0, len(groups))
+	for k := range groups {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	out := make([]BucketConfig, 0, len(keys))
+	for _, key := range keys {
+		b, err := bucketFromEnvGroup(key, groups[key])
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, b)
+	}
+	return out, nil
+}
+
+func parseBucketEnvKey(envKey string) (bucketKey, field string, ok bool) {
+	rest, ok := strings.CutPrefix(envKey, "BUCKET_")
+	if !ok || rest == "" {
+		return "", "", false
+	}
+	for _, f := range bucketEnvFields {
+		suffix := "_" + f
+		if strings.HasSuffix(rest, suffix) {
+			key := strings.TrimSuffix(rest, suffix)
+			if key == "" {
+				return "", "", false
+			}
+			return key, f, true
+		}
+	}
+	return "", "", false
+}
+
+func bucketFromEnvGroup(key string, fields map[string]string) (BucketConfig, error) {
+	prefix := "BUCKET_" + key
+	name := strings.TrimSpace(fields["NAME"])
+	if name == "" {
+		name = strings.ToLower(key)
+	}
+	b := BucketConfig{
+		Name:                name,
+		Endpoint:            strings.TrimSpace(fields["ENDPOINT"]),
+		PublicEndpoint:      strings.TrimSpace(fields["PUBLICENDPOINT"]),
+		AccessKey:           strings.TrimSpace(fields["ACCESSKEY"]),
+		SecretKey:           strings.TrimSpace(fields["SECRETKEY"]),
+		CDNDomain:           strings.TrimSpace(fields["CDNDOMAIN"]),
+		Region:              strings.TrimSpace(fields["REGION"]),
+		Addressing:          strings.TrimSpace(fields["ADDRESSING"]),
+		AllowedContentTypes: splitList(fields["ALLOWEDCONTENTTYPES"]),
+	}
+	if b.Endpoint == "" || b.AccessKey == "" || b.SecretKey == "" {
+		return BucketConfig{}, fmt.Errorf("%s: ENDPOINT, ACCESSKEY, SECRETKEY are required", prefix)
+	}
+	if v := strings.TrimSpace(fields["USESSL"]); v != "" {
+		useSSL, err := strconv.ParseBool(v)
+		if err != nil {
+			return BucketConfig{}, fmt.Errorf("%s_USESSL: invalid boolean %q", prefix, v)
+		}
+		b.UseSSL = useSSL
+	}
+	if v := strings.TrimSpace(fields["MAXUPLOADBYTES"]); v != "" {
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return BucketConfig{}, fmt.Errorf("%s_MAXUPLOADBYTES: invalid integer %q", prefix, v)
+		}
+		if n < 0 {
+			return BucketConfig{}, fmt.Errorf("%s_MAXUPLOADBYTES must be >= 0", prefix)
+		}
+		b.MaxUploadBytes = n
+	}
+	if err := validateEndpoint(b.Endpoint); err != nil {
+		return BucketConfig{}, fmt.Errorf("%s_ENDPOINT: %w", prefix, err)
+	}
+	if b.PublicEndpoint != "" {
+		if err := validateEndpoint(b.PublicEndpoint); err != nil {
+			return BucketConfig{}, fmt.Errorf("%s_PUBLICENDPOINT: %w", prefix, err)
+		}
+	}
+	if err := validateAddressing(b.Addressing); err != nil {
+		return BucketConfig{}, fmt.Errorf("%s_ADDRESSING: %w", prefix, err)
+	}
+	if err := rejectCOSBucketHost(b.Endpoint); err != nil {
+		return BucketConfig{}, fmt.Errorf("%s_ENDPOINT: %w", prefix, err)
+	}
+	if b.PublicEndpoint != "" {
+		if err := rejectCOSBucketHost(b.PublicEndpoint); err != nil {
+			return BucketConfig{}, fmt.Errorf("%s_PUBLICENDPOINT: %w", prefix, err)
+		}
+	}
+	if b.Region == "" {
+		b.Region = "us-east-1"
+	}
+	return b, nil
 }
 
 // GetBucket returns bucket config by name.

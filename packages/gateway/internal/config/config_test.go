@@ -5,11 +5,18 @@ import (
 	"testing"
 )
 
-const testBuckets = `[{"name":"uploads","endpoint":"http://localhost:9000","accessKey":"a","secretKey":"b","cdnDomain":"http://cdn/uploads","useSSL":false}]`
+func setUploadsBucket(t *testing.T) {
+	t.Helper()
+	t.Setenv("BUCKET_UPLOADS_ENDPOINT", "http://localhost:9000")
+	t.Setenv("BUCKET_UPLOADS_ACCESSKEY", "a")
+	t.Setenv("BUCKET_UPLOADS_SECRETKEY", "b")
+	t.Setenv("BUCKET_UPLOADS_CDNDOMAIN", "http://cdn/uploads")
+	t.Setenv("BUCKET_UPLOADS_USESSL", "false")
+}
 
 func TestLoad(t *testing.T) {
 	t.Setenv("JWT_SECRET", "secret")
-	t.Setenv("BUCKET_CONFIG", testBuckets)
+	setUploadsBucket(t)
 	cfg, err := Load()
 	if err != nil {
 		t.Fatal(err)
@@ -25,17 +32,35 @@ func TestLoad(t *testing.T) {
 	}
 }
 
+func TestLoadMultipleBuckets(t *testing.T) {
+	t.Setenv("JWT_SECRET", "secret")
+	setUploadsBucket(t)
+	t.Setenv("BUCKET_AVATARS_NAME", "avatars")
+	t.Setenv("BUCKET_AVATARS_ENDPOINT", "http://localhost:9001")
+	t.Setenv("BUCKET_AVATARS_ACCESSKEY", "x")
+	t.Setenv("BUCKET_AVATARS_SECRETKEY", "y")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Buckets) != 2 {
+		t.Fatalf("want 2 buckets, got %+v", cfg.Buckets)
+	}
+	if _, ok := cfg.GetBucket("avatars"); !ok {
+		t.Fatal("missing avatars")
+	}
+}
+
 func TestLoadRequiresBuckets(t *testing.T) {
 	t.Setenv("JWT_SECRET", "secret")
-	t.Setenv("BUCKET_CONFIG", "")
 	if _, err := Load(); err == nil {
-		t.Fatal("expected error")
+		t.Fatal("expected error when no BUCKET_<NAME>_* vars are set")
 	}
 }
 
 func TestLoadRequiresSecretUnlessExplicitDevMode(t *testing.T) {
 	t.Setenv("JWT_SECRET", "")
-	t.Setenv("BUCKET_CONFIG", testBuckets)
+	setUploadsBucket(t)
 	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "JWT_SECRET") {
 		t.Fatalf("expected JWT_SECRET error, got %v", err)
 	}
@@ -52,18 +77,27 @@ func TestLoadRequiresSecretUnlessExplicitDevMode(t *testing.T) {
 
 func TestLoadRejectsInvalidValues(t *testing.T) {
 	cases := map[string]map[string]string{
-		"bad int":         {"DEFAULT_EXPIRE_SEC": "abc"},
-		"default > max":   {"DEFAULT_EXPIRE_SEC": "7200", "MAX_EXPIRE_SEC": "3600"},
+		"bad int":       {"DEFAULT_EXPIRE_SEC": "abc"},
+		"default > max": {"DEFAULT_EXPIRE_SEC": "7200", "MAX_EXPIRE_SEC": "3600"},
 		"max over s3 cap": {"MAX_EXPIRE_SEC": "999999999"},
-		"duplicate bucket": {"BUCKET_CONFIG": `[` +
-			`{"name":"u","endpoint":"http://a:9000","accessKey":"a","secretKey":"b"},` +
-			`{"name":"u","endpoint":"http://b:9000","accessKey":"a","secretKey":"b"}]`},
-		"endpoint with path": {"BUCKET_CONFIG": `[{"name":"u","endpoint":"http://a:9000/s3","accessKey":"a","secretKey":"b"}]`},
+		"duplicate bucket": {
+			"BUCKET_A_NAME":       "u",
+			"BUCKET_A_ENDPOINT":   "http://a:9000",
+			"BUCKET_A_ACCESSKEY":  "a",
+			"BUCKET_A_SECRETKEY":  "b",
+			"BUCKET_B_NAME":       "u",
+			"BUCKET_B_ENDPOINT":   "http://b:9000",
+			"BUCKET_B_ACCESSKEY":  "a",
+			"BUCKET_B_SECRETKEY":  "b",
+		},
+		"endpoint with path": {
+			"BUCKET_UPLOADS_ENDPOINT": "http://a:9000/s3",
+		},
 	}
 	for name, env := range cases {
 		t.Run(name, func(t *testing.T) {
 			t.Setenv("JWT_SECRET", "secret")
-			t.Setenv("BUCKET_CONFIG", testBuckets)
+			setUploadsBucket(t)
 			for k, v := range env {
 				t.Setenv(k, v)
 			}
@@ -93,11 +127,11 @@ func TestUseVirtualHost(t *testing.T) {
 
 func TestRejectCOSBucketHost(t *testing.T) {
 	t.Setenv("JWT_SECRET", "secret")
-	t.Setenv("BUCKET_CONFIG", `[{
-		"name":"app",
-		"endpoint":"https://develop-1490074736.cos.ap-shanghai.myqcloud.com",
-		"accessKey":"a","secretKey":"b","useSSL":true,"region":"ap-shanghai"
-	}]`)
+	t.Setenv("BUCKET_APP_ENDPOINT", "https://develop-1490074736.cos.ap-shanghai.myqcloud.com")
+	t.Setenv("BUCKET_APP_ACCESSKEY", "a")
+	t.Setenv("BUCKET_APP_SECRETKEY", "b")
+	t.Setenv("BUCKET_APP_USESSL", "true")
+	t.Setenv("BUCKET_APP_REGION", "ap-shanghai")
 	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "regional COS endpoint") {
 		t.Fatalf("expected regional COS endpoint error, got %v", err)
 	}
@@ -119,5 +153,19 @@ func TestContentTypeAllowed(t *testing.T) {
 	}
 	if !(BucketConfig{}).ContentTypeAllowed("anything/else") {
 		t.Fatal("empty allowlist must allow all")
+	}
+}
+
+func TestParseBucketEnvKey(t *testing.T) {
+	key, field, ok := parseBucketEnvKey("BUCKET_UPLOADS_PUBLICENDPOINT")
+	if !ok || key != "UPLOADS" || field != "PUBLICENDPOINT" {
+		t.Fatalf("got %q %q %v", key, field, ok)
+	}
+	key, field, ok = parseBucketEnvKey("BUCKET_MY_BUCKET_ACCESSKEY")
+	if !ok || key != "MY_BUCKET" || field != "ACCESSKEY" {
+		t.Fatalf("got %q %q %v", key, field, ok)
+	}
+	if _, _, ok := parseBucketEnvKey("BUCKET_CONFIG"); ok {
+		t.Fatal("BUCKET_CONFIG must not parse as a bucket field")
 	}
 }

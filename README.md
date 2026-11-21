@@ -70,7 +70,7 @@ Read-only calls also use `POST` + JSON so keys and tokens stay out of URLs and a
 | `MAX_EXPIRE_SEC` | Upper bound for client `expireSec` (default 86400, max 604800) |
 | `CORS_ALLOWED_ORIGINS` | Comma-separated origins (default `*`) |
 | `MAX_BODY_BYTES` | Max JSON request body (default 1 MiB) |
-| `BUCKET_CONFIG` | JSON array of bucket endpoints (AK/SK, CDN domain, optional `maxUploadBytes`, `allowedContentTypes`) |
+| `BUCKET_<NAME>_*` | Per-bucket config (`ENDPOINT`, `ACCESSKEY`, `SECRETKEY` required; optional `NAME`, `PUBLICENDPOINT`, `CDNDOMAIN`, `USESSL`, `REGION`, `ADDRESSING`, `MAXUPLOADBYTES`, `ALLOWEDCONTENTTYPES`) |
 
 Buckets that set `cdnDomain` are assumed to be publicly readable; keep private data in a separate bucket (see [docs/architecture.md](docs/architecture.md#public-vs-private-buckets)).
 

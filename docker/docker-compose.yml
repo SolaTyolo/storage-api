@@ -78,8 +78,14 @@ services:
       LISTEN_ADDR: ":8080"
       CORS_ALLOWED_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
       # endpoint = in-docker; publicEndpoint = browser-facing host for presigned URLs
-      BUCKET_CONFIG: >
-        [{"name":"uploads","endpoint":"http://rustfs:9000","publicEndpoint":"http://localhost:9000","accessKey":"rustfsadmin","secretKey":"rustfsadmin","cdnDomain":"http://localhost:8081/uploads","useSSL":false,"region":"us-east-1"}]
+      BUCKET_UPLOADS_NAME: uploads
+      BUCKET_UPLOADS_ENDPOINT: http://rustfs:9000
+      BUCKET_UPLOADS_PUBLICENDPOINT: http://localhost:9000
+      BUCKET_UPLOADS_ACCESSKEY: rustfsadmin
+      BUCKET_UPLOADS_SECRETKEY: rustfsadmin
+      BUCKET_UPLOADS_CDNDOMAIN: http://localhost:8081/uploads
+      BUCKET_UPLOADS_USESSL: "false"
+      BUCKET_UPLOADS_REGION: us-east-1
     depends_on:
       rustfs:
         condition: service_healthy

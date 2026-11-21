@@ -48,7 +48,7 @@ docs/                  架构、OpenAPI、SDK 文档
 | `DEFAULT_EXPIRE_SEC` / `MAX_EXPIRE_SEC` | 预签名默认有效期（900）/ 客户端可请求的上限（86400） |
 | `CORS_ALLOWED_ORIGINS` | 允许的浏览器来源，逗号分隔（默认 `*`） |
 | `MAX_BODY_BYTES` | JSON 请求体上限（默认 1 MiB） |
-| `BUCKET_CONFIG` | 桶配置 JSON（endpoint、AK/SK、CDN，可选 `maxUploadBytes`、`allowedContentTypes`） |
+| `BUCKET_<NAME>_*` | 按桶拆分的环境变量（必填 `ENDPOINT` / `ACCESSKEY` / `SECRETKEY`；可选 `NAME`、`PUBLICENDPOINT`、`CDNDOMAIN`、`USESSL`、`REGION`、`ADDRESSING`、`MAXUPLOADBYTES`、`ALLOWEDCONTENTTYPES`） |
 
 JWT 必须带 `exp`。浏览器只应拿到按用户前缀限定的短期 token，不要下发 `service_role`。配置了 `cdnDomain` 的桶视为公开可读，私有数据请放到单独的桶，通过 `/presign/get` 访问。
 

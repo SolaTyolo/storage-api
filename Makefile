@@ -26,7 +26,12 @@ playground-dev: sdk-build
 run: build
 	cd $(GATEWAY_DIR) && \
 	JWT_SECRET=$${JWT_SECRET:-dev-secret-xxx} \
-	BUCKET_CONFIG='[{"name":"uploads","endpoint":"http://localhost:9000","publicEndpoint":"http://localhost:9000","accessKey":"rustfsadmin","secretKey":"rustfsadmin","cdnDomain":"http://localhost:8081/uploads","useSSL":false}]' \
+	BUCKET_UPLOADS_ENDPOINT=$${BUCKET_UPLOADS_ENDPOINT:-http://localhost:9000} \
+	BUCKET_UPLOADS_PUBLICENDPOINT=$${BUCKET_UPLOADS_PUBLICENDPOINT:-http://localhost:9000} \
+	BUCKET_UPLOADS_ACCESSKEY=$${BUCKET_UPLOADS_ACCESSKEY:-rustfsadmin} \
+	BUCKET_UPLOADS_SECRETKEY=$${BUCKET_UPLOADS_SECRETKEY:-rustfsadmin} \
+	BUCKET_UPLOADS_CDNDOMAIN=$${BUCKET_UPLOADS_CDNDOMAIN:-http://localhost:8081/uploads} \
+	BUCKET_UPLOADS_USESSL=$${BUCKET_UPLOADS_USESSL:-false} \
 	go run ./cmd/gateway
 
 docker-up:
