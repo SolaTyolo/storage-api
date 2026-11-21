@@ -77,18 +77,18 @@ func TestLoadRequiresSecretUnlessExplicitDevMode(t *testing.T) {
 
 func TestLoadRejectsInvalidValues(t *testing.T) {
 	cases := map[string]map[string]string{
-		"bad int":       {"DEFAULT_EXPIRE_SEC": "abc"},
-		"default > max": {"DEFAULT_EXPIRE_SEC": "7200", "MAX_EXPIRE_SEC": "3600"},
+		"bad int":         {"DEFAULT_EXPIRE_SEC": "abc"},
+		"default > max":   {"DEFAULT_EXPIRE_SEC": "7200", "MAX_EXPIRE_SEC": "3600"},
 		"max over s3 cap": {"MAX_EXPIRE_SEC": "999999999"},
 		"duplicate bucket": {
-			"BUCKET_A_NAME":       "u",
-			"BUCKET_A_ENDPOINT":   "http://a:9000",
-			"BUCKET_A_ACCESSKEY":  "a",
-			"BUCKET_A_SECRETKEY":  "b",
-			"BUCKET_B_NAME":       "u",
-			"BUCKET_B_ENDPOINT":   "http://b:9000",
-			"BUCKET_B_ACCESSKEY":  "a",
-			"BUCKET_B_SECRETKEY":  "b",
+			"BUCKET_A_NAME":      "u",
+			"BUCKET_A_ENDPOINT":  "http://a:9000",
+			"BUCKET_A_ACCESSKEY": "a",
+			"BUCKET_A_SECRETKEY": "b",
+			"BUCKET_B_NAME":      "u",
+			"BUCKET_B_ENDPOINT":  "http://b:9000",
+			"BUCKET_B_ACCESSKEY": "a",
+			"BUCKET_B_SECRETKEY": "b",
 		},
 		"endpoint with path": {
 			"BUCKET_UPLOADS_ENDPOINT": "http://a:9000/s3",
